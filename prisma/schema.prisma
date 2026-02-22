@@ -1,0 +1,47 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  name      String?
+  createdAt DateTime @default(now())
+  entries   Entry[]
+}
+
+model Entry {
+  id         String       @id @default(uuid())
+  title      String
+  body       String
+  createdAt  DateTime     @default(now())
+  updatedAt  DateTime     @updatedAt
+  version    Int          @default(1)
+  author     User?        @relation(fields: [authorId], references: [id])
+  authorId   String?
+  tags       Tag[]        @relation("EntryTags", references: [id])
+  attachments Attachment[]
+}
+
+model Attachment {
+  id         String   @id @default(uuid())
+  entry      Entry    @relation(fields: [entryId], references: [id])
+  entryId    String
+  filename   String
+  mime       String
+  size       Int
+  path       String
+  checksum   String?
+  createdAt  DateTime @default(now())
+}
+
+model Tag {
+  id    String  @id @default(uuid())
+  name  String  @unique
+  entries Entry[] @relation("EntryTags")
+}
