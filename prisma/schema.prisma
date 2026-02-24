@@ -24,7 +24,7 @@ model Entry {
   version    Int          @default(1)
   author     User?        @relation(fields: [authorId], references: [id])
   authorId   String?
-  tags       Tag[]        @relation("EntryTags", references: [id])
+  tags       Tag[]        @relation("EntryTags")
   attachments Attachment[]
 }
 

@@ -1,15 +1,19 @@
 import { NextResponse } from "next/server";
-import type { Entry } from "@/models/entry";
-import { newEntry } from "@/models/entry";
-import { store } from "@/lib/store";
+import prisma from "@/lib/prisma";
 
 export async function GET() {
-  return NextResponse.json(store.entries);
+  const entries = await prisma.entry.findMany({ orderBy: { createdAt: "desc" } });
+  return NextResponse.json(entries);
 }
 
 export async function POST(request: Request) {
   const payload = await request.json().catch(() => ({}));
-  const entry: Entry = newEntry(payload);
-  store.entries.unshift(entry);
-  return NextResponse.json(entry, { status: 201 });
+  const created = await prisma.entry.create({
+    data: {
+      title: payload.title ?? "Untitled",
+      body: payload.body ?? "",
+      authorId: payload.authorId ?? null,
+    },
+  });
+  return NextResponse.json(created, { status: 201 });
 }
