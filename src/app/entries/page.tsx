@@ -93,7 +93,11 @@ export default function EntriesPage() {
         {selected && (
           <div className="mt-6 rounded border p-4">
             <h3 className="text-lg font-medium">Preview</h3>
-            <p className="mt-2 whitespace-pre-wrap text-sm text-zinc-700">{selected.body}</p>
+            <div className="prose prose-sm mt-4 max-w-none">
+              <p className="text-sm text-zinc-600">
+                {typeof selected.body === "string" ? selected.body.slice(0, 300) : "Rich content"}
+              </p>
+            </div>
           </div>
         )}
       </main>
