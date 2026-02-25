@@ -21,17 +21,25 @@ export default function EntriesPage() {
   const [selected, setSelected] = useState<Entry | null>(null);
   const [loading, setLoading] = useState(false);
 
-  const requestHeaders = useMemo(
+  const authHeaders = useMemo(
     () => ({
-      "Content-Type": "application/json",
       "x-user-id": CURRENT_USER.id,
       "x-user-name": CURRENT_USER.name,
       "x-user-role": CURRENT_USER.role,
     }),
     []
   );
+  const jsonHeaders = useMemo(
+    () => ({
+      ...authHeaders,
+      "Content-Type": "application/json",
+    }),
+    [authHeaders]
+  );
 
-  const canModify = (entry: Entry) => {
+  const canEdit = (entry: Entry) => Boolean(entry.authorId && entry.authorId === CURRENT_USER.id);
+
+  const canDelete = (entry: Entry) => {
     if (CURRENT_USER.role === "ADMIN") return true;
     if (CURRENT_USER.name === "Default") return true;
     return Boolean(entry.authorId && entry.authorId === CURRENT_USER.id);
@@ -40,7 +48,7 @@ export default function EntriesPage() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch("/api/entries", { headers: requestHeaders });
+      const res = await fetch("/api/entries", { headers: authHeaders });
       if (!res.ok) {
         const text = await res.text().catch(() => "<no body>");
         console.error("Failed to load entries:", res.status, text);
@@ -54,7 +62,7 @@ export default function EntriesPage() {
     } finally {
       setLoading(false);
     }
-  }, [requestHeaders]);
+  }, [authHeaders]);
 
   useEffect(() => {
     load();
@@ -68,7 +76,7 @@ export default function EntriesPage() {
       const method = isUpdate ? "PUT" : "POST";
       const res = await fetch(endpoint, {
         method,
-        headers: requestHeaders,
+        headers: jsonHeaders,
         body: JSON.stringify({
           title: payload.title,
           description: payload.description,
@@ -97,7 +105,7 @@ export default function EntriesPage() {
 
   async function handleDelete(id: string) {
     const entry = entries.find((e) => e.id === id);
-    if (!entry || !canModify(entry)) return;
+    if (!entry || !canDelete(entry)) return;
 
     const firstCheck = window.confirm(
       "Are you sure you want to delete this entry? It cannot be recovered once deleted."
@@ -109,7 +117,7 @@ export default function EntriesPage() {
 
     setLoading(true);
     try {
-      const res = await fetch(`/api/entries/${id}`, { method: "DELETE", headers: requestHeaders });
+      const res = await fetch(`/api/entries/${id}`, { method: "DELETE", headers: authHeaders });
       if (!res.ok) {
         const text = await res.text().catch(() => "<no body>");
         console.error("Failed to delete entry:", res.status, text);
@@ -125,7 +133,7 @@ export default function EntriesPage() {
   async function handleSelect(id: string) {
     setLoading(true);
     try {
-      const res = await fetch(`/api/entries/${id}`, { headers: requestHeaders });
+      const res = await fetch(`/api/entries/${id}`, { headers: authHeaders });
       if (res.ok) {
         const data = (await res.json()) as Entry;
         setSelected(data);
@@ -140,7 +148,7 @@ export default function EntriesPage() {
     try {
       const res = await fetch(`/api/entries/${id}`, {
         method: "POST",
-        headers: requestHeaders,
+        headers: authHeaders,
       });
       if (!res.ok) {
         const text = await res.text().catch(() => "<no body>");
@@ -157,12 +165,19 @@ export default function EntriesPage() {
 
   async function handleEdit(id: string) {
     const entry = entries.find((e) => e.id === id);
-    if (!entry || !canModify(entry)) return;
+    if (!entry || !canEdit(entry)) return;
     await handleSelect(id);
   }
 
   return (
-    <div className="flex min-h-screen gap-5 p-6">
+    <div className="flex min-h-screen flex-col gap-5 p-6">
+      <div className="flex items-center justify-between rounded border border-zinc-200 bg-white px-4 py-2">
+        <h1 className="text-base font-semibold text-zinc-900">Protocol Entries</h1>
+        <p className="text-sm text-zinc-600">
+          User: <span className="font-semibold text-zinc-900">{CURRENT_USER.name}</span>
+        </p>
+      </div>
+      <div className="flex gap-5">
       <aside className="w-64 shrink-0">
         <h2 className="mb-3 text-lg font-semibold">Entries</h2>
         <div className="mb-4">
@@ -176,8 +191,8 @@ export default function EntriesPage() {
         <div>
           <EntryList
             entries={entries}
-            canEdit={canModify}
-            canDelete={canModify}
+            canEdit={canEdit}
+            canDelete={canDelete}
             onSelect={handleSelect}
             onEdit={handleEdit}
             onClone={handleClone}
@@ -207,6 +222,7 @@ export default function EntriesPage() {
           </div>
         )}
       </main>
+      </div>
     </div>
   );
 }

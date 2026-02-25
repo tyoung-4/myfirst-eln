@@ -7,6 +7,7 @@ type Actor = {
   email: string;
   role: "ADMIN" | "MEMBER";
 };
+type RouteContext = { params: Promise<{ id: string }> | { id: string } };
 
 function normalizeDescription(value: unknown): string {
   return String(value ?? "").trim().slice(0, 100);
@@ -51,13 +52,23 @@ function canModifyEntry(actor: Actor, authorId: string | null): boolean {
   return Boolean(authorId && actor.id === authorId);
 }
 
-export async function GET(request: Request, { params }: { params: { id: string } }) {
+function canEditEntry(actor: Actor, authorId: string | null): boolean {
+  return Boolean(authorId && actor.id === authorId);
+}
+
+async function getEntryId(context: RouteContext): Promise<string> {
+  const resolved = await context.params;
+  return resolved.id;
+}
+
+export async function GET(request: Request, context: RouteContext) {
+  const id = await getEntryId(context);
   try {
     const actor = getActorFromRequest(request);
     await ensureActor(actor);
 
     const found = await prisma.entry.findUnique({
-      where: { id: params.id },
+      where: { id },
       include: {
         author: {
           select: { id: true, name: true, role: true },
@@ -68,26 +79,27 @@ export async function GET(request: Request, { params }: { params: { id: string }
     if (!found) return new NextResponse(null, { status: 404 });
     return NextResponse.json(found);
   } catch (error) {
-    console.error(`GET /api/entries/${params.id} failed:`, error);
+    console.error(`GET /api/entries/${id} failed:`, error);
     const detail = process.env.NODE_ENV === "development" && error instanceof Error ? error.message : undefined;
     return NextResponse.json({ error: "Failed to load entry", detail }, { status: 500 });
   }
 }
 
-export async function PUT(request: Request, { params }: { params: { id: string } }) {
+export async function PUT(request: Request, context: RouteContext) {
+  const id = await getEntryId(context);
   const payload = await request.json().catch(() => ({}));
   try {
     const actor = getActorFromRequest(request);
     await ensureActor(actor);
 
-    const existing = await prisma.entry.findUnique({ where: { id: params.id }, select: { authorId: true } });
+    const existing = await prisma.entry.findUnique({ where: { id }, select: { authorId: true } });
     if (!existing) return new NextResponse(null, { status: 404 });
-    if (!canModifyEntry(actor, existing.authorId)) {
+    if (!canEditEntry(actor, existing.authorId)) {
       return NextResponse.json({ error: "Not allowed to edit this entry" }, { status: 403 });
     }
 
     const updated = await prisma.entry.update({
-      where: { id: params.id },
+      where: { id },
       data: {
         title: payload.title,
         description: normalizeDescription(payload.description),
@@ -104,40 +116,42 @@ export async function PUT(request: Request, { params }: { params: { id: string }
   } catch (error) {
     const isMissing = typeof error === "object" && error !== null && "code" in error && error.code === "P2025";
     if (isMissing) return new NextResponse(null, { status: 404 });
-    console.error(`PUT /api/entries/${params.id} failed:`, error);
+    console.error(`PUT /api/entries/${id} failed:`, error);
     const detail = process.env.NODE_ENV === "development" && error instanceof Error ? error.message : undefined;
     return NextResponse.json({ error: "Failed to update entry", detail }, { status: 500 });
   }
 }
 
-export async function DELETE(request: Request, { params }: { params: { id: string } }) {
+export async function DELETE(request: Request, context: RouteContext) {
+  const id = await getEntryId(context);
   try {
     const actor = getActorFromRequest(request);
     await ensureActor(actor);
 
-    const existing = await prisma.entry.findUnique({ where: { id: params.id }, select: { authorId: true } });
+    const existing = await prisma.entry.findUnique({ where: { id }, select: { authorId: true } });
     if (!existing) return new NextResponse(null, { status: 404 });
     if (!canModifyEntry(actor, existing.authorId)) {
       return NextResponse.json({ error: "Not allowed to delete this entry" }, { status: 403 });
     }
 
-    await prisma.entry.delete({ where: { id: params.id } });
+    await prisma.entry.delete({ where: { id } });
     return new NextResponse(null, { status: 204 });
   } catch (error) {
     const isMissing = typeof error === "object" && error !== null && "code" in error && error.code === "P2025";
     if (isMissing) return new NextResponse(null, { status: 404 });
-    console.error(`DELETE /api/entries/${params.id} failed:`, error);
+    console.error(`DELETE /api/entries/${id} failed:`, error);
     const detail = process.env.NODE_ENV === "development" && error instanceof Error ? error.message : undefined;
     return NextResponse.json({ error: "Failed to delete entry", detail }, { status: 500 });
   }
 }
 
-export async function POST(request: Request, { params }: { params: { id: string } }) {
+export async function POST(request: Request, context: RouteContext) {
+  const id = await getEntryId(context);
   try {
     const actor = getActorFromRequest(request);
     await ensureActor(actor);
 
-    const source = await prisma.entry.findUnique({ where: { id: params.id } });
+    const source = await prisma.entry.findUnique({ where: { id } });
     if (!source) return new NextResponse(null, { status: 404 });
 
     const cloned = await prisma.entry.create({
@@ -157,7 +171,7 @@ export async function POST(request: Request, { params }: { params: { id: string 
 
     return NextResponse.json(cloned, { status: 201 });
   } catch (error) {
-    console.error(`POST /api/entries/${params.id} clone failed:`, error);
+    console.error(`POST /api/entries/${id} clone failed:`, error);
     const detail = process.env.NODE_ENV === "development" && error instanceof Error ? error.message : undefined;
     return NextResponse.json({ error: "Failed to clone entry", detail }, { status: 500 });
   }
