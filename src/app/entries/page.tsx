@@ -26,7 +26,9 @@ export default function EntriesPage() {
   const router = useRouter();
   const [entries, setEntries] = useState<Entry[]>([]);
   const [selected, setSelected] = useState<Entry | null>(null);
+  const [editorMode, setEditorMode] = useState<"create" | "edit">("create");
   const [loading, setLoading] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [currentUser, setCurrentUser] = useState<CurrentUser>(DEFAULT_USER);
 
   const authHeaders = useMemo(
@@ -86,8 +88,9 @@ export default function EntriesPage() {
 
   async function handleSave(payload: Partial<Entry>) {
     setLoading(true);
+    setSaveError(null);
     try {
-      const isUpdate = Boolean(payload.id);
+      const isUpdate = editorMode === "edit" && Boolean(payload.id);
       const endpoint = isUpdate ? `/api/entries/${payload.id}` : "/api/entries";
       const method = isUpdate ? "PUT" : "POST";
       const res = await fetch(endpoint, {
@@ -102,9 +105,16 @@ export default function EntriesPage() {
       });
 
       if (!res.ok) {
-        const text = await res.text().catch(() => "<no body>");
-        console.error(`Failed to ${isUpdate ? "update" : "create"} entry:`, res.status, text);
-        throw new Error(`${isUpdate ? "Update" : "Create"} failed`);
+        let detail = "";
+        try {
+          const parsed = await res.json();
+          detail = parsed?.error || parsed?.detail || "";
+        } catch {
+          detail = await res.text().catch(() => "<no body>");
+        }
+        console.error(`Failed to ${isUpdate ? "update" : "create"} entry:`, res.status, detail);
+        setSaveError(`${isUpdate ? "Update" : "Create"} failed (${res.status})${detail ? `: ${detail}` : ""}`);
+        return;
       }
 
       const saved = (await res.json()) as Entry;
@@ -113,6 +123,7 @@ export default function EntriesPage() {
       } else {
         setEntries((s) => [saved, ...s]);
       }
+      setEditorMode("edit");
       setSelected(saved);
     } finally {
       setLoading(false);
@@ -140,7 +151,10 @@ export default function EntriesPage() {
         return;
       }
       setEntries((s) => s.filter((e) => e.id !== id));
-      if (selected?.id === id) setSelected(null);
+      if (selected?.id === id) {
+        setSelected(null);
+        setEditorMode("create");
+      }
     } finally {
       setLoading(false);
     }
@@ -152,6 +166,7 @@ export default function EntriesPage() {
       const res = await fetch(`/api/entries/${id}`, { headers: authHeaders });
       if (res.ok) {
         const data = (await res.json()) as Entry;
+        setEditorMode("edit");
         setSelected(data);
       }
     } finally {
@@ -226,6 +241,7 @@ export default function EntriesPage() {
               const next = e.target.value === "ADMIN" ? ADMIN_USER : DEFAULT_USER;
               setCurrentUser(next);
               setSelected(null);
+              setEditorMode("create");
             }}
             className="rounded border border-zinc-300 bg-white px-2 py-1 text-xs text-zinc-700"
           >
@@ -239,7 +255,11 @@ export default function EntriesPage() {
           <h2 className="mb-3 text-lg font-semibold">Entries</h2>
           <div className="mb-4">
             <button
-              onClick={() => setSelected(null)}
+              onClick={() => {
+                setSelected(null);
+                setEditorMode("create");
+                setSaveError(null);
+              }}
               className="mb-2 w-full rounded bg-green-600 px-3 py-2 text-sm text-white"
             >
               New Entry
@@ -266,11 +286,19 @@ export default function EntriesPage() {
               Run Protocol
             </button>
           </div>
+          {saveError && (
+            <div className="mb-3 rounded border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700">
+              {saveError}
+            </div>
+          )}
           <Editor
             initial={selected ?? undefined}
             currentAuthorName={currentUser.name}
             onSave={handleSave}
-            onCancel={() => setSelected(null)}
+            onCancel={() => {
+              setSelected(null);
+              setEditorMode("create");
+            }}
             saving={loading}
           />
           {selected && (
