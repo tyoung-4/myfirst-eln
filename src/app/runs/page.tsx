@@ -29,7 +29,7 @@ const ADMIN_USER: CurrentUser = {
   role: "ADMIN",
 };
 
-export default function RunsPage() {
+function RunsPageContent() {
   const searchParams = useSearchParams();
   const initialRunId = searchParams.get("runId");
 
@@ -226,5 +226,13 @@ export default function RunsPage() {
         </main>
       </div>
     </div>
+  );
+}
+
+export default function RunsPage() {
+  return (
+    <React.Suspense fallback={<div className="p-6 text-sm text-zinc-600">Loading runs...</div>}>
+      <RunsPageContent />
+    </React.Suspense>
   );
 }

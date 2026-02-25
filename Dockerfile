@@ -13,6 +13,7 @@ RUN pnpm install --frozen-lockfile
 COPY . .
 
 RUN chmod +x docker/entrypoint.sh
+RUN pnpm prisma generate --schema prisma/schema.prisma
 RUN pnpm build
 
 EXPOSE 3000
