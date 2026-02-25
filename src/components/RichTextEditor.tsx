@@ -26,6 +26,7 @@ type EntryTypeOption = {
 };
 
 const ENTRY_TYPE_OPTIONS: EntryTypeOption[] = [
+  { label: "Undefined", defaultUnit: "" },
   { label: "Mass", defaultUnit: "g" },
   { label: "Volume", defaultUnit: "mL" },
   { label: "Concentration", defaultUnit: "mM" },
@@ -46,8 +47,8 @@ function formatDuration(totalSeconds: number) {
 }
 
 function MeasurementFieldView({ node, updateAttributes, editor }: NodeViewProps) {
-  const label = String(node.attrs.label ?? "Mass");
-  const unit = String(node.attrs.unit ?? "g");
+  const label = String(node.attrs.label ?? "Undefined");
+  const unit = String(node.attrs.unit ?? "");
   const value = String(node.attrs.value ?? "");
 
   return (
@@ -61,7 +62,7 @@ function MeasurementFieldView({ node, updateAttributes, editor }: NodeViewProps)
           placeholder="value"
           className="w-20 rounded border border-blue-200 bg-white px-2 py-1 text-xs text-zinc-900"
         />
-        <span>{unit}</span>
+        {unit ? <span>{unit}</span> : null}
       </span>
     </NodeViewWrapper>
   );
@@ -127,7 +128,7 @@ const MeasurementFieldNode = Node.create({
   addAttributes() {
     return {
       label: { default: "Mass" },
-      unit: { default: "g" },
+      unit: { default: "" },
       value: { default: "" },
     };
   },
@@ -135,16 +136,16 @@ const MeasurementFieldNode = Node.create({
     return [{ tag: "span[data-entry-node='measurement']" }];
   },
   renderHTML({ HTMLAttributes }) {
-    const label = String(HTMLAttributes.label ?? "Mass");
+    const label = String(HTMLAttributes.label ?? "Undefined");
     const value = String(HTMLAttributes.value ?? "");
-    const unit = String(HTMLAttributes.unit ?? "g");
+    const unit = String(HTMLAttributes.unit ?? "");
     return [
       "span",
       mergeAttributes(HTMLAttributes, {
         "data-entry-node": "measurement",
         class: "entry-measurement",
       }),
-      `${label}: ${value || "__"} ${unit}`,
+      `${label}: ${value || "__"}${unit ? ` ${unit}` : ""}`,
     ];
   },
   addNodeView() {
@@ -309,7 +310,7 @@ export default function RichTextEditor({ initialContent = "", onChange, editable
         type: "measurementField",
         attrs: {
           label,
-          unit: entryUnit || selectedOption?.defaultUnit || "g",
+          unit: entryUnit || selectedOption?.defaultUnit || "",
           value: "",
         },
       })
@@ -578,8 +579,10 @@ export default function RichTextEditor({ initialContent = "", onChange, editable
                 <select
                   value={entryUnit}
                   onChange={(e) => setEntryUnit(e.target.value)}
+                  disabled={entryType === "Undefined"}
                   className="w-full rounded border border-gray-300 px-3 py-2 text-gray-900"
                 >
+                  <option value="">No unit</option>
                   {UNIT_OPTIONS.map((unit) => (
                     <option key={unit} value={unit}>
                       {unit}

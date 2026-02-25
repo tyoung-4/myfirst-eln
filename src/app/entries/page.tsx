@@ -10,24 +10,30 @@ type CurrentUser = {
   role: "ADMIN" | "MEMBER";
 };
 
-const CURRENT_USER: CurrentUser = {
-  id: "default-user",
+const DEFAULT_USER: CurrentUser = {
+  id: "default-default",
   name: "Default",
   role: "MEMBER",
+};
+const ADMIN_USER: CurrentUser = {
+  id: "admin-default",
+  name: "Admin",
+  role: "ADMIN",
 };
 
 export default function EntriesPage() {
   const [entries, setEntries] = useState<Entry[]>([]);
   const [selected, setSelected] = useState<Entry | null>(null);
   const [loading, setLoading] = useState(false);
+  const [currentUser, setCurrentUser] = useState<CurrentUser>(DEFAULT_USER);
 
   const authHeaders = useMemo(
     () => ({
-      "x-user-id": CURRENT_USER.id,
-      "x-user-name": CURRENT_USER.name,
-      "x-user-role": CURRENT_USER.role,
+      "x-user-id": currentUser.id,
+      "x-user-name": currentUser.name,
+      "x-user-role": currentUser.role,
     }),
-    []
+    [currentUser]
   );
   const jsonHeaders = useMemo(
     () => ({
@@ -37,12 +43,14 @@ export default function EntriesPage() {
     [authHeaders]
   );
 
-  const canEdit = (entry: Entry) => Boolean(entry.authorId && entry.authorId === CURRENT_USER.id);
+  const canEdit = (entry: Entry) => {
+    if (currentUser.role === "ADMIN") return true;
+    return Boolean(entry.authorId && entry.authorId === currentUser.id);
+  };
 
   const canDelete = (entry: Entry) => {
-    if (CURRENT_USER.role === "ADMIN") return true;
-    if (CURRENT_USER.name === "Default") return true;
-    return Boolean(entry.authorId && entry.authorId === CURRENT_USER.id);
+    if (currentUser.role === "ADMIN") return true;
+    return Boolean(entry.authorId && entry.authorId === currentUser.id);
   };
 
   const load = useCallback(async () => {
@@ -173,9 +181,23 @@ export default function EntriesPage() {
     <div className="flex min-h-screen flex-col gap-5 p-6">
       <div className="flex items-center justify-between rounded border border-zinc-200 bg-white px-4 py-2">
         <h1 className="text-base font-semibold text-zinc-900">Protocol Entries</h1>
-        <p className="text-sm text-zinc-600">
-          User: <span className="font-semibold text-zinc-900">{CURRENT_USER.name}</span>
-        </p>
+        <div className="flex items-center gap-2 text-sm text-zinc-600">
+          <span>
+            User: <span className="font-semibold text-zinc-900">{currentUser.name}</span>
+          </span>
+          <select
+            value={currentUser.role}
+            onChange={(e) => {
+              const next = e.target.value === "ADMIN" ? ADMIN_USER : DEFAULT_USER;
+              setCurrentUser(next);
+              setSelected(null);
+            }}
+            className="rounded border border-zinc-300 bg-white px-2 py-1 text-xs text-zinc-700"
+          >
+            <option value="MEMBER">Login as Default</option>
+            <option value="ADMIN">Login as Admin</option>
+          </select>
+        </div>
       </div>
       <div className="flex gap-5">
       <aside className="w-64 shrink-0">
@@ -204,7 +226,7 @@ export default function EntriesPage() {
         <h2 className="mb-4 text-xl font-semibold">Editor</h2>
         <Editor
           initial={selected ?? undefined}
-          currentAuthorName={CURRENT_USER.name}
+          currentAuthorName={currentUser.name}
           onSave={handleSave}
           onCancel={() => setSelected(null)}
           saving={loading}
@@ -213,7 +235,7 @@ export default function EntriesPage() {
           <div className="mt-6 rounded border p-4">
             <h3 className="text-lg font-medium">Preview</h3>
             <p className="mt-1 text-sm text-zinc-600">{selected.description || "No description"}</p>
-            <p className="mt-1 text-xs text-zinc-500">Author: {selected.author?.name || CURRENT_USER.name}</p>
+            <p className="mt-1 text-xs text-zinc-500">Author: {selected.author?.name || currentUser.name}</p>
             <div className="prose prose-sm mt-4 max-w-none">
               <p className="text-sm text-zinc-600">
                 {typeof selected.body === "string" ? selected.body.slice(0, 300) : "Rich content"}

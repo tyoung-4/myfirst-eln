@@ -48,11 +48,11 @@ async function ensureActor(actor: Actor) {
 
 function canModifyEntry(actor: Actor, authorId: string | null): boolean {
   if (actor.role === "ADMIN") return true;
-  if (actor.name === "Default") return true;
   return Boolean(authorId && actor.id === authorId);
 }
 
 function canEditEntry(actor: Actor, authorId: string | null): boolean {
+  if (actor.role === "ADMIN") return true;
   return Boolean(authorId && actor.id === authorId);
 }
 
