@@ -1,9 +1,9 @@
 "use client";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import Editor from "@/components/Editor";
 import EntryList from "@/components/EntryList";
 import type { Entry } from "@/models/entry";
-import type { ProtocolRun } from "@/models/protocolRun";
 
 type CurrentUser = {
   id: string;
@@ -23,8 +23,8 @@ const ADMIN_USER: CurrentUser = {
 };
 
 export default function EntriesPage() {
+  const router = useRouter();
   const [entries, setEntries] = useState<Entry[]>([]);
-  const [runs, setRuns] = useState<ProtocolRun[]>([]);
   const [selected, setSelected] = useState<Entry | null>(null);
   const [loading, setLoading] = useState(false);
   const [currentUser, setCurrentUser] = useState<CurrentUser>(DEFAULT_USER);
@@ -37,7 +37,6 @@ export default function EntriesPage() {
     }),
     [currentUser]
   );
-
   const jsonHeaders = useMemo(
     () => ({
       ...authHeaders,
@@ -65,27 +64,14 @@ export default function EntriesPage() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [entriesRes, runsRes] = await Promise.all([
-        fetch("/api/entries", { headers: authHeaders }),
-        fetch("/api/protocol-runs", { headers: authHeaders }),
-      ]);
-
-      if (!entriesRes.ok) {
-        const text = await entriesRes.text().catch(() => "<no body>");
-        console.error("Failed to load entries:", entriesRes.status, text);
+      const res = await fetch("/api/entries", { headers: authHeaders });
+      if (!res.ok) {
+        const text = await res.text().catch(() => "<no body>");
+        console.error("Failed to load entries:", res.status, text);
         setEntries([]);
       } else {
-        const entriesData = (await entriesRes.json()) as Entry[];
-        setEntries(entriesData);
-      }
-
-      if (!runsRes.ok) {
-        const text = await runsRes.text().catch(() => "<no body>");
-        console.error("Failed to load runs:", runsRes.status, text);
-        setRuns([]);
-      } else {
-        const runsData = (await runsRes.json()) as ProtocolRun[];
-        setRuns(runsData);
+        const data = (await res.json()) as Entry[];
+        setEntries(data);
       }
     } catch (e) {
       console.error(e);
@@ -195,6 +181,10 @@ export default function EntriesPage() {
 
   async function handleRunProtocol() {
     if (!selected) return;
+
+    const shouldRun = window.confirm(`Run Protocol: ${selected.title}?`);
+    if (!shouldRun) return;
+
     setLoading(true);
     try {
       const res = await fetch("/api/protocol-runs", {
@@ -209,8 +199,8 @@ export default function EntriesPage() {
         return;
       }
 
-      const created = (await res.json()) as ProtocolRun;
-      setRuns((s) => [created, ...s]);
+      const run = (await res.json()) as { id: string };
+      router.push(`/runs?runId=${run.id}`);
     } finally {
       setLoading(false);
     }
@@ -244,7 +234,6 @@ export default function EntriesPage() {
           </select>
         </div>
       </div>
-
       <div className="flex gap-5">
         <aside className="w-64 shrink-0">
           <h2 className="mb-3 text-lg font-semibold">Entries</h2>
@@ -266,7 +255,6 @@ export default function EntriesPage() {
             onDelete={handleDelete}
           />
         </aside>
-
         <main className="flex-1">
           <div className="mb-4 flex items-center justify-between">
             <h2 className="text-xl font-semibold">Editor</h2>
@@ -278,7 +266,6 @@ export default function EntriesPage() {
               Run Protocol
             </button>
           </div>
-
           <Editor
             initial={selected ?? undefined}
             currentAuthorName={currentUser.name}
@@ -286,7 +273,6 @@ export default function EntriesPage() {
             onCancel={() => setSelected(null)}
             saving={loading}
           />
-
           {selected && (
             <div className="mt-6 rounded border p-4">
               <h3 className="text-lg font-medium">Preview</h3>
@@ -299,22 +285,6 @@ export default function EntriesPage() {
               </div>
             </div>
           )}
-
-          <div className="mt-8 rounded border p-4">
-            <h3 className="text-lg font-semibold">Protocol Runs (Backbone)</h3>
-            <p className="mb-3 text-xs text-zinc-500">Runs are stored separately and start as locked clones.</p>
-            <ul className="space-y-2">
-              {runs.map((run) => (
-                <li key={run.id} className="rounded border border-zinc-200 bg-zinc-50 px-3 py-2">
-                  <p className="text-sm font-semibold text-zinc-900">{run.title}</p>
-                  <p className="text-xs text-zinc-600">
-                    Source: {run.sourceEntry?.title || run.sourceEntryId} | Runner: {run.runner?.name || "Unknown"} | Status: {run.status}
-                  </p>
-                </li>
-              ))}
-              {runs.length === 0 && <li className="text-sm text-zinc-500">No runs created yet.</li>}
-            </ul>
-          </div>
         </main>
       </div>
     </div>

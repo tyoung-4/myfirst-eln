@@ -47,6 +47,7 @@ export async function GET(request: Request) {
     await ensureActor(actor);
 
     const runs = await prisma.protocolRun.findMany({
+      where: actor.role === "ADMIN" ? undefined : { runnerId: actor.id },
       orderBy: { createdAt: "desc" },
       include: {
         sourceEntry: { select: { id: true, title: true, description: true } },
@@ -84,6 +85,7 @@ export async function POST(request: Request) {
         status: "IN_PROGRESS",
         locked: true,
         runBody: source.body,
+        notes: "",
         interactionState: JSON.stringify({
           stepCompletion: {},
           entryFields: {},

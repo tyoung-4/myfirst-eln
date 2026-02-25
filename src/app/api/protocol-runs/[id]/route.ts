@@ -97,6 +97,7 @@ export async function PUT(request: Request, context: RouteContext) {
       data: {
         interactionState: typeof payload.interactionState === "string" ? payload.interactionState : undefined,
         status: typeof payload.status === "string" ? payload.status : undefined,
+        notes: typeof payload.notes === "string" ? payload.notes : undefined,
       },
       include: {
         sourceEntry: { select: { id: true, title: true, description: true } },

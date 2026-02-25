@@ -4,6 +4,7 @@ export type ProtocolRun = {
   status: string;
   locked: boolean;
   runBody: string;
+  notes: string;
   interactionState: string;
   createdAt: string;
   updatedAt: string;
