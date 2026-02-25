@@ -2,6 +2,7 @@ export type Entry = {
   id: string;
   title: string;
   description: string;
+  technique?: string;
   body: string;
   createdAt: string;
   updatedAt: string;
@@ -16,12 +17,23 @@ export type Entry = {
   version?: number;
 };
 
+export const TECHNIQUE_OPTIONS = [
+  "General",
+  "Cloning",
+  "Flow Cytometry",
+  "Purification",
+  "Bacterial Expression",
+  "Mammalian Expression",
+  "Other",
+] as const;
+
 export function newEntry(data: Partial<Entry> = {}): Entry {
   const now = new Date().toISOString();
   return {
     id: generateId(),
     title: data.title ?? "Untitled",
     description: data.description ?? "",
+    technique: data.technique ?? "General",
     body: data.body ?? "",
     createdAt: now,
     updatedAt: now,

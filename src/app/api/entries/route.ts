@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
+import { TECHNIQUE_OPTIONS } from "@/models/entry";
 
 type Actor = {
   id: string;
@@ -10,6 +11,12 @@ type Actor = {
 
 function normalizeDescription(value: unknown): string {
   return String(value ?? "").trim().slice(0, 100);
+}
+
+function normalizeTechnique(value: unknown): string {
+  const raw = String(value ?? "").trim();
+  if (!raw) return "General";
+  return TECHNIQUE_OPTIONS.includes(raw as (typeof TECHNIQUE_OPTIONS)[number]) ? raw : "Other";
 }
 
 function getActorFromRequest(request?: Request): Actor {
@@ -79,6 +86,7 @@ export async function POST(request: Request) {
       data: {
         title: payload.title ?? "Untitled",
         description: normalizeDescription(payload.description),
+        technique: normalizeTechnique(payload.technique),
         body: payload.body ?? "",
         authorId: actor.id,
       },

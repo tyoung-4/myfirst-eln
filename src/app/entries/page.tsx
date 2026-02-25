@@ -3,7 +3,7 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Editor from "@/components/Editor";
 import EntryList from "@/components/EntryList";
-import type { Entry } from "@/models/entry";
+import { TECHNIQUE_OPTIONS, type Entry } from "@/models/entry";
 
 type CurrentUser = {
   id: string;
@@ -30,6 +30,11 @@ export default function EntriesPage() {
   const [loading, setLoading] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [currentUser, setCurrentUser] = useState<CurrentUser>(DEFAULT_USER);
+  const [isDirty, setIsDirty] = useState(false);
+  const [keyword, setKeyword] = useState("");
+  const [techniqueFilter, setTechniqueFilter] = useState("ALL");
+  const [authorFilter, setAuthorFilter] = useState("ALL");
+  const [sortBy, setSortBy] = useState<"newest" | "oldest" | "technique" | "author">("newest");
 
   const authHeaders = useMemo(
     () => ({
@@ -100,6 +105,7 @@ export default function EntriesPage() {
           title: payload.title,
           description: payload.description,
           body: payload.body,
+          technique: payload.technique,
           authorId: payload.authorId,
         }),
       });
@@ -125,6 +131,7 @@ export default function EntriesPage() {
       }
       setEditorMode("edit");
       setSelected(saved);
+      setIsDirty(false);
     } finally {
       setLoading(false);
     }
@@ -154,6 +161,7 @@ export default function EntriesPage() {
       if (selected?.id === id) {
         setSelected(null);
         setEditorMode("create");
+        setIsDirty(false);
       }
     } finally {
       setLoading(false);
@@ -168,6 +176,7 @@ export default function EntriesPage() {
         const data = (await res.json()) as Entry;
         setEditorMode("edit");
         setSelected(data);
+        setIsDirty(false);
       }
     } finally {
       setLoading(false);
@@ -189,6 +198,8 @@ export default function EntriesPage() {
       const cloned = (await res.json()) as Entry;
       setEntries((s) => [cloned, ...s]);
       setSelected(cloned);
+      setEditorMode("edit");
+      setIsDirty(false);
     } finally {
       setLoading(false);
     }
@@ -221,6 +232,37 @@ export default function EntriesPage() {
     }
   }
 
+  const authorOptions = useMemo(() => {
+    const values = Array.from(new Set(entries.map((entry) => entry.author?.name || "Default")));
+    return values.sort((a, b) => a.localeCompare(b));
+  }, [entries]);
+
+  const filteredEntries = useMemo(() => {
+    const query = keyword.trim().toLowerCase();
+    const filtered = entries.filter((entry) => {
+      const authorName = entry.author?.name || "Default";
+      const technique = entry.technique || "General";
+      const matchesTechnique = techniqueFilter === "ALL" || technique === techniqueFilter;
+      const matchesAuthor = authorFilter === "ALL" || authorName === authorFilter;
+      const matchesKeyword =
+        !query ||
+        `${entry.title} ${entry.description} ${technique} ${authorName} ${entry.body}`.toLowerCase().includes(query);
+
+      return matchesTechnique && matchesAuthor && matchesKeyword;
+    });
+
+    filtered.sort((a, b) => {
+      if (sortBy === "oldest") return a.createdAt.localeCompare(b.createdAt);
+      if (sortBy === "technique") return (a.technique || "General").localeCompare(b.technique || "General");
+      if (sortBy === "author") return (a.author?.name || "Default").localeCompare(b.author?.name || "Default");
+      return b.createdAt.localeCompare(a.createdAt);
+    });
+
+    return filtered;
+  }, [entries, keyword, techniqueFilter, authorFilter, sortBy]);
+
+  const runDisabled = !selected || loading || editorMode !== "edit" || isDirty;
+
   async function handleEdit(id: string) {
     const entry = entries.find((e) => e.id === id);
     if (!entry || !canEdit(entry)) return;
@@ -230,7 +272,7 @@ export default function EntriesPage() {
   return (
     <div className="flex min-h-screen flex-col gap-5 p-6">
       <div className="flex items-center justify-between rounded border border-zinc-200 bg-white px-4 py-2">
-        <h1 className="text-base font-semibold text-zinc-900">Protocol Entries</h1>
+        <h1 className="text-base font-semibold text-zinc-900">Protocols</h1>
         <div className="flex items-center gap-2 text-sm text-zinc-600">
           <span>
             User: <span className="font-semibold text-zinc-900">{currentUser.name}</span>
@@ -252,21 +294,64 @@ export default function EntriesPage() {
       </div>
       <div className="flex gap-5">
         <aside className="w-64 shrink-0">
-          <h2 className="mb-3 text-lg font-semibold">Entries</h2>
+          <h2 className="mb-3 text-lg font-semibold">Protocols</h2>
           <div className="mb-4">
             <button
               onClick={() => {
                 setSelected(null);
                 setEditorMode("create");
                 setSaveError(null);
+                setIsDirty(false);
               }}
               className="mb-2 w-full rounded bg-green-600 px-3 py-2 text-sm text-white"
             >
-              New Entry
+              New Protocol
             </button>
           </div>
+          <div className="mb-3 space-y-2 rounded border border-zinc-200 bg-white p-2">
+            <input
+              value={keyword}
+              onChange={(e) => setKeyword(e.target.value)}
+              placeholder="Search keyword"
+              className="w-full rounded border border-zinc-300 px-2 py-1 text-xs"
+            />
+            <select
+              value={techniqueFilter}
+              onChange={(e) => setTechniqueFilter(e.target.value)}
+              className="w-full rounded border border-zinc-300 bg-white px-2 py-1 text-xs"
+            >
+              <option value="ALL">All techniques</option>
+              {TECHNIQUE_OPTIONS.map((option) => (
+                <option key={option} value={option}>
+                  {option}
+                </option>
+              ))}
+            </select>
+            <select
+              value={authorFilter}
+              onChange={(e) => setAuthorFilter(e.target.value)}
+              className="w-full rounded border border-zinc-300 bg-white px-2 py-1 text-xs"
+            >
+              <option value="ALL">All authors</option>
+              {authorOptions.map((authorName) => (
+                <option key={authorName} value={authorName}>
+                  {authorName}
+                </option>
+              ))}
+            </select>
+            <select
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value as "newest" | "oldest" | "technique" | "author")}
+              className="w-full rounded border border-zinc-300 bg-white px-2 py-1 text-xs"
+            >
+              <option value="newest">Sort: Newest</option>
+              <option value="oldest">Sort: Oldest</option>
+              <option value="technique">Sort: Technique</option>
+              <option value="author">Sort: Author</option>
+            </select>
+          </div>
           <EntryList
-            entries={entries}
+            entries={filteredEntries}
             canEdit={canEdit}
             canDelete={canDelete}
             onSelect={handleSelect}
@@ -280,12 +365,13 @@ export default function EntriesPage() {
             <h2 className="text-xl font-semibold">Editor</h2>
             <button
               onClick={handleRunProtocol}
-              disabled={!selected || loading}
+              disabled={runDisabled}
               className="rounded bg-indigo-600 px-3 py-2 text-sm text-white disabled:opacity-50"
             >
               Run Protocol
             </button>
           </div>
+          {runDisabled && <p className="-mt-2 mb-3 text-xs text-zinc-500">(save first!)</p>}
           {saveError && (
             <div className="mb-3 rounded border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700">
               {saveError}
@@ -298,7 +384,9 @@ export default function EntriesPage() {
             onCancel={() => {
               setSelected(null);
               setEditorMode("create");
+              setIsDirty(false);
             }}
+            onDirtyChange={setIsDirty}
             saving={loading}
           />
           {selected && (
@@ -306,6 +394,7 @@ export default function EntriesPage() {
               <h3 className="text-lg font-medium">Preview</h3>
               <p className="mt-1 text-sm text-zinc-600">{selected.description || "No description"}</p>
               <p className="mt-1 text-xs text-zinc-500">Author: {selected.author?.name || currentUser.name}</p>
+              <p className="mt-1 text-xs text-zinc-500">Technique: {selected.technique || "General"}</p>
               <div className="prose prose-sm mt-4 max-w-none">
                 <p className="text-sm text-zinc-600">
                   {typeof selected.body === "string" ? selected.body.slice(0, 300) : "Rich content"}

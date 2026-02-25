@@ -23,6 +23,7 @@ export default function EntryList({ entries, canEdit, canDelete, onSelect, onEdi
         const fallback = stripHtml(e.body ?? "");
         const summary = (e.description || fallback).slice(0, 100);
         const authorName = e.author?.name || "Default";
+        const technique = e.technique || "General";
         const editable = canEdit(e);
         const deletable = canDelete(e);
 
@@ -32,6 +33,7 @@ export default function EntryList({ entries, canEdit, canDelete, onSelect, onEdi
               <p className="truncate text-base font-semibold text-zinc-900">{e.title || "Untitled"}</p>
               <p className="mt-1 text-xs text-zinc-600">{summary || "No description"}</p>
               <p className="mt-1 text-[11px] text-zinc-500">Author: {authorName}</p>
+              <p className="text-[11px] text-zinc-500">Technique: {technique}</p>
             </button>
             <div className="mt-2 grid grid-cols-3 gap-1">
               <button
