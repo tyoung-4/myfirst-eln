@@ -5,12 +5,19 @@ import type { Entry } from "@/models/entry";
 
 type Props = {
   initial?: Partial<Entry>;
+  currentAuthorName?: string;
   onSave: (data: Partial<Entry>) => void;
   onCancel?: () => void;
   saving?: boolean;
 };
 
-export default function Editor({ initial = {}, onSave, onCancel, saving = false }: Props) {
+export default function Editor({
+  initial = {},
+  currentAuthorName = "Default",
+  onSave,
+  onCancel,
+  saving = false,
+}: Props) {
   const [title, setTitle] = useState(initial.title ?? "");
   const [description, setDescription] = useState(initial.description ?? "");
   const [body, setBody] = useState(initial.body ?? "");
@@ -35,6 +42,10 @@ export default function Editor({ initial = {}, onSave, onCancel, saving = false 
           rows={2}
           className="w-full resize-none rounded border bg-white px-3 py-2 text-sm text-zinc-700"
         />
+        <div className="mt-3 rounded border bg-white px-3 py-2">
+          <p className="text-xs font-medium text-zinc-500">Author</p>
+          <p className="text-sm text-zinc-800">{initial.author?.name || currentAuthorName || "Default"}</p>
+        </div>
         <p className="mt-1 text-right text-xs text-zinc-500">{(description || initial.description || "").length}/100</p>
       </div>
 

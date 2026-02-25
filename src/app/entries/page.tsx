@@ -1,18 +1,46 @@
 "use client";
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import Editor from "@/components/Editor";
 import EntryList from "@/components/EntryList";
 import type { Entry } from "@/models/entry";
+
+type CurrentUser = {
+  id: string;
+  name: string;
+  role: "ADMIN" | "MEMBER";
+};
+
+const CURRENT_USER: CurrentUser = {
+  id: "default-user",
+  name: "Default",
+  role: "MEMBER",
+};
 
 export default function EntriesPage() {
   const [entries, setEntries] = useState<Entry[]>([]);
   const [selected, setSelected] = useState<Entry | null>(null);
   const [loading, setLoading] = useState(false);
 
-  async function load() {
+  const requestHeaders = useMemo(
+    () => ({
+      "Content-Type": "application/json",
+      "x-user-id": CURRENT_USER.id,
+      "x-user-name": CURRENT_USER.name,
+      "x-user-role": CURRENT_USER.role,
+    }),
+    []
+  );
+
+  const canModify = (entry: Entry) => {
+    if (CURRENT_USER.role === "ADMIN") return true;
+    if (CURRENT_USER.name === "Default") return true;
+    return Boolean(entry.authorId && entry.authorId === CURRENT_USER.id);
+  };
+
+  const load = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch("/api/entries");
+      const res = await fetch("/api/entries", { headers: requestHeaders });
       if (!res.ok) {
         const text = await res.text().catch(() => "<no body>");
         console.error("Failed to load entries:", res.status, text);
@@ -26,11 +54,11 @@ export default function EntriesPage() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [requestHeaders]);
 
   useEffect(() => {
     load();
-  }, []);
+  }, [load]);
 
   async function handleSave(payload: Partial<Entry>) {
     setLoading(true);
@@ -40,7 +68,7 @@ export default function EntriesPage() {
       const method = isUpdate ? "PUT" : "POST";
       const res = await fetch(endpoint, {
         method,
-        headers: { "Content-Type": "application/json" },
+        headers: requestHeaders,
         body: JSON.stringify({
           title: payload.title,
           description: payload.description,
@@ -68,9 +96,25 @@ export default function EntriesPage() {
   }
 
   async function handleDelete(id: string) {
+    const entry = entries.find((e) => e.id === id);
+    if (!entry || !canModify(entry)) return;
+
+    const firstCheck = window.confirm(
+      "Are you sure you want to delete this entry? It cannot be recovered once deleted."
+    );
+    if (!firstCheck) return;
+
+    const secondCheck = window.confirm("Please confirm again that you want to permanently delete this entry.");
+    if (!secondCheck) return;
+
     setLoading(true);
     try {
-      await fetch(`/api/entries/${id}`, { method: "DELETE" });
+      const res = await fetch(`/api/entries/${id}`, { method: "DELETE", headers: requestHeaders });
+      if (!res.ok) {
+        const text = await res.text().catch(() => "<no body>");
+        console.error("Failed to delete entry:", res.status, text);
+        return;
+      }
       setEntries((s) => s.filter((e) => e.id !== id));
       if (selected?.id === id) setSelected(null);
     } finally {
@@ -81,7 +125,7 @@ export default function EntriesPage() {
   async function handleSelect(id: string) {
     setLoading(true);
     try {
-      const res = await fetch(`/api/entries/${id}`);
+      const res = await fetch(`/api/entries/${id}`, { headers: requestHeaders });
       if (res.ok) {
         const data = (await res.json()) as Entry;
         setSelected(data);
@@ -89,6 +133,32 @@ export default function EntriesPage() {
     } finally {
       setLoading(false);
     }
+  }
+
+  async function handleClone(id: string) {
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/entries/${id}`, {
+        method: "POST",
+        headers: requestHeaders,
+      });
+      if (!res.ok) {
+        const text = await res.text().catch(() => "<no body>");
+        console.error("Failed to clone entry:", res.status, text);
+        return;
+      }
+      const cloned = (await res.json()) as Entry;
+      setEntries((s) => [cloned, ...s]);
+      setSelected(cloned);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleEdit(id: string) {
+    const entry = entries.find((e) => e.id === id);
+    if (!entry || !canModify(entry)) return;
+    await handleSelect(id);
   }
 
   return (
@@ -104,13 +174,22 @@ export default function EntriesPage() {
           </button>
         </div>
         <div>
-          <EntryList entries={entries} onSelect={handleSelect} onDelete={handleDelete} />
+          <EntryList
+            entries={entries}
+            canEdit={canModify}
+            canDelete={canModify}
+            onSelect={handleSelect}
+            onEdit={handleEdit}
+            onClone={handleClone}
+            onDelete={handleDelete}
+          />
         </div>
       </aside>
       <main className="flex-1">
         <h2 className="mb-4 text-xl font-semibold">Editor</h2>
         <Editor
           initial={selected ?? undefined}
+          currentAuthorName={CURRENT_USER.name}
           onSave={handleSave}
           onCancel={() => setSelected(null)}
           saving={loading}
@@ -119,6 +198,7 @@ export default function EntriesPage() {
           <div className="mt-6 rounded border p-4">
             <h3 className="text-lg font-medium">Preview</h3>
             <p className="mt-1 text-sm text-zinc-600">{selected.description || "No description"}</p>
+            <p className="mt-1 text-xs text-zinc-500">Author: {selected.author?.name || CURRENT_USER.name}</p>
             <div className="prose prose-sm mt-4 max-w-none">
               <p className="text-sm text-zinc-600">
                 {typeof selected.body === "string" ? selected.body.slice(0, 300) : "Rich content"}

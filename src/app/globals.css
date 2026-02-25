@@ -136,12 +136,11 @@ table td {
   margin-top: 0.1rem;
 }
 
-.step-list .step-item > label::before {
+.step-list .step-item > label::after {
   content: counter(step) ".";
   color: #1f2937;
   font-weight: 600;
-  min-width: 1.4rem;
-  text-align: right;
+  margin-left: 0.1rem;
 }
 
 .step-list .step-item > div {

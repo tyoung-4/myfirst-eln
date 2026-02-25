@@ -8,6 +8,11 @@ export type Entry = {
   tags?: string[];
   attachments?: string[];
   authorId?: string;
+  author?: {
+    id: string;
+    name: string | null;
+    role: string;
+  } | null;
   version?: number;
 };
 
