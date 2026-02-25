@@ -2,7 +2,7 @@
 
 A lightweight Electronic Lab Notebook (ELN) built with Next.js, Prisma, and TipTap.
 
-## Local Development
+## Local Development (PostgreSQL)
 
 1. Install dependencies:
 
@@ -10,64 +10,55 @@ A lightweight Electronic Lab Notebook (ELN) built with Next.js, Prisma, and TipT
 pnpm install
 ```
 
-2. Create env file:
+2. Copy env file:
 
 ```bash
 cp .env.example .env
 ```
 
-3. Run app:
+3. Start PostgreSQL (Docker):
 
 ```bash
+docker compose up -d postgres
+```
+
+4. Sync schema and run app:
+
+```bash
+pnpm prisma db push
 pnpm dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000).
 
-## Docker Deployment
+## Docker Deployment (PostgreSQL)
 
-You do **not** need two separate Docker setups.
-
-This repo now uses **one Docker setup** with two compose modes:
-- default SQLite mode (simple, lightweight)
-- optional Postgres profile (for future migration)
-
-### 1) SQLite mode (default)
+Run both app + postgres:
 
 ```bash
 docker compose up --build
 ```
 
+Services:
 - App: [http://localhost:3000](http://localhost:3000)
-- Data persisted in Docker volume: `sqlite_data`
+- PostgreSQL: `localhost:5432`
 
-### 2) Postgres profile
+## Notes on SQLite Migration
 
-```bash
-docker compose --profile postgres up --build
-```
-
-- App: [http://localhost:3000](http://localhost:3000)
-- Postgres: `localhost:5432`
-- App container uses `DB_MODE=postgres` and auto-applies schema with Prisma `db push`.
+The project now defaults to PostgreSQL.
+Previous local SQLite files/migrations are kept in git history but are no longer used for runtime.
 
 ## Docker Files
 
-- `Dockerfile`: production image build and app startup
-- `docker-compose.yml`: SQLite default + Postgres profile
-- `docker/entrypoint.sh`: selects Prisma schema/bootstrap flow by `DB_MODE`
-- `.dockerignore`: keeps image small and avoids leaking local env/db files
-
-## Prisma Schemas
-
-- `prisma/schema.prisma`: SQLite schema (current default)
-- `prisma/schema.postgres.prisma`: Postgres-compatible schema (migration path)
+- `Dockerfile`: production image build and startup
+- `docker-compose.yml`: app + postgres deployment
+- `docker/entrypoint.sh`: Prisma generate + schema sync (`db push`) before startup
 
 ## Stack
 
 - Next.js 16
 - React 19
-- Prisma
+- Prisma + PostgreSQL
 - Tailwind CSS
 - TipTap editor
 

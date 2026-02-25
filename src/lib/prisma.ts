@@ -5,7 +5,7 @@ const globalForPrisma = globalThis as unknown as {
 };
 
 if (!process.env.DATABASE_URL) {
-  process.env.DATABASE_URL = "file:./dev.db";
+  process.env.DATABASE_URL = "postgresql://eln:elnpassword@localhost:5432/eln";
 }
 
 const client = globalForPrisma.prisma ?? new PrismaClient();
