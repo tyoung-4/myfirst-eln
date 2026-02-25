@@ -50,7 +50,7 @@ function MeasurementFieldView({ node, updateAttributes, editor }: NodeViewProps)
   const label = String(node.attrs.label ?? "Undefined");
   const unit = String(node.attrs.unit ?? "");
   const value = String(node.attrs.value ?? "");
-  const inputWidth = `${Math.max(8, Math.min(48, value.length + 2))}ch`;
+  const inputWidth = `${Math.max(10, Math.min(64, value.length + 4))}ch`;
 
   return (
     <NodeViewWrapper as="span" className="inline-block align-middle">
@@ -70,7 +70,7 @@ function MeasurementFieldView({ node, updateAttributes, editor }: NodeViewProps)
           disabled={!editor.isEditable}
           placeholder="value"
           style={{ width: inputWidth }}
-          className="min-w-[8ch] rounded border border-blue-200 bg-white px-2 py-1 text-xs text-zinc-900"
+          className="min-w-[10ch] rounded border border-blue-200 bg-white px-2.5 py-1 text-xs text-zinc-900"
         />
         {unit ? <span>{unit}</span> : null}
       </span>

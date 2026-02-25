@@ -14,7 +14,7 @@ type CurrentUser = {
 type InteractionState = {
   stepCompletion: Record<string, boolean>;
   entryFields: Record<string, string>;
-  timers: Record<string, { total: number; remaining: number; running: boolean }>;
+  timers: Record<string, { total: number; remaining: number; running: boolean; locked: boolean }>;
 };
 
 const DEFAULT_USER: CurrentUser = {
@@ -39,6 +39,14 @@ function RunsPageContent() {
   const [interactionState, setInteractionState] = useState<InteractionState | null>(null);
   const [notes, setNotes] = useState("");
   const [loading, setLoading] = useState(false);
+  const [utilityMinutes, setUtilityMinutes] = useState(5);
+  const [utilitySeconds, setUtilitySeconds] = useState(0);
+  const [utilityTimer, setUtilityTimer] = useState({
+    total: 300,
+    remaining: 300,
+    running: false,
+    locked: false,
+  });
 
   const authHeaders = useMemo(
     () => ({
@@ -86,6 +94,21 @@ function RunsPageContent() {
   useEffect(() => {
     loadRuns();
   }, [loadRuns]);
+
+  useEffect(() => {
+    if (!utilityTimer.running || utilityTimer.locked) return;
+    const id = window.setInterval(() => {
+      setUtilityTimer((prev) => {
+        const next = Math.max(0, prev.remaining - 1);
+        return {
+          ...prev,
+          remaining: next,
+          running: next > 0,
+        };
+      });
+    }, 1000);
+    return () => window.clearInterval(id);
+  }, [utilityTimer.running, utilityTimer.locked]);
 
   async function handleSelectRun(id: string) {
     setLoading(true);
@@ -140,6 +163,28 @@ function RunsPageContent() {
     } finally {
       setLoading(false);
     }
+  }
+
+  function formatDuration(totalSeconds: number) {
+    const minutes = Math.floor(totalSeconds / 60)
+      .toString()
+      .padStart(2, "0");
+    const seconds = (totalSeconds % 60).toString().padStart(2, "0");
+    return `${minutes}:${seconds}`;
+  }
+
+  function applyUtilityDuration(minutes: number, seconds: number) {
+    const safeMinutes = Math.max(0, minutes);
+    const safeSeconds = Math.min(59, Math.max(0, seconds));
+    const total = safeMinutes * 60 + safeSeconds;
+    setUtilityMinutes(safeMinutes);
+    setUtilitySeconds(safeSeconds);
+    setUtilityTimer({
+      total: Math.max(1, total),
+      remaining: Math.max(1, total),
+      running: false,
+      locked: false,
+    });
   }
 
   return (
@@ -218,6 +263,73 @@ function RunsPageContent() {
                   placeholder="Run-specific notes"
                   className="w-full rounded border border-zinc-300 px-3 py-2 text-sm"
                 />
+              </div>
+
+              <div className="rounded border border-zinc-200 bg-white p-4">
+                <h3 className="mb-2 text-sm font-semibold">Utility Timer</h3>
+                <p className="mb-3 text-xs text-zinc-500">Standalone timer for this run (outside protocol steps).</p>
+                <div className="mb-3 grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="mb-1 block text-xs text-zinc-600">Minutes</label>
+                    <input
+                      type="number"
+                      min="0"
+                      value={utilityMinutes}
+                      onChange={(e) => applyUtilityDuration(parseInt(e.target.value || "0", 10), utilitySeconds)}
+                      className="w-full rounded border border-zinc-300 px-2 py-1 text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-xs text-zinc-600">Seconds</label>
+                    <input
+                      type="number"
+                      min="0"
+                      max="59"
+                      value={utilitySeconds}
+                      onChange={(e) => applyUtilityDuration(utilityMinutes, parseInt(e.target.value || "0", 10))}
+                      className="w-full rounded border border-zinc-300 px-2 py-1 text-sm"
+                    />
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="min-w-[70px] rounded border border-zinc-300 bg-zinc-50 px-2 py-1 text-center font-mono text-sm">
+                    {formatDuration(utilityTimer.remaining)}
+                  </span>
+                  <button
+                    onClick={() =>
+                      setUtilityTimer((prev) =>
+                        prev.locked ? prev : { ...prev, running: !prev.running }
+                      )
+                    }
+                    disabled={utilityTimer.locked}
+                    className="rounded border border-zinc-300 px-2 py-1 text-xs disabled:opacity-40"
+                  >
+                    {utilityTimer.running ? "Pause" : "Start"}
+                  </button>
+                  <button
+                    onClick={() =>
+                      setUtilityTimer((prev) =>
+                        prev.locked ? prev : { ...prev, running: false, remaining: prev.total }
+                      )
+                    }
+                    disabled={utilityTimer.locked}
+                    className="rounded border border-zinc-300 px-2 py-1 text-xs disabled:opacity-40"
+                  >
+                    Reset
+                  </button>
+                  <button
+                    onClick={() =>
+                      setUtilityTimer((prev) => ({
+                        ...prev,
+                        running: false,
+                        locked: !prev.locked,
+                      }))
+                    }
+                    className="rounded border border-zinc-300 px-2 py-1 text-xs"
+                  >
+                    {utilityTimer.locked ? "Unlock" : "Lock"}
+                  </button>
+                </div>
               </div>
             </>
           ) : (
