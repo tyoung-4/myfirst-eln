@@ -112,3 +112,42 @@ table th {
 table td {
   background-color: #ffffff;
 }
+
+/* Numbered Step checkboxes */
+.step-list {
+  list-style: none;
+  margin: 0.75rem 0;
+  padding-left: 0;
+  counter-reset: step;
+}
+
+.step-list .step-item {
+  counter-increment: step;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  margin: 0.35rem 0;
+}
+
+.step-list .step-item > label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-top: 0.1rem;
+}
+
+.step-list .step-item > label::before {
+  content: counter(step) ".";
+  color: #1f2937;
+  font-weight: 600;
+  min-width: 1.4rem;
+  text-align: right;
+}
+
+.step-list .step-item > div {
+  flex: 1;
+}
+
+.tiptap-root .ProseMirror {
+  min-height: 22rem;
+}

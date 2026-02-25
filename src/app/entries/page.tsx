@@ -41,7 +41,12 @@ export default function EntriesPage() {
       const res = await fetch(endpoint, {
         method,
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: payload.title, body: payload.body, authorId: payload.authorId }),
+        body: JSON.stringify({
+          title: payload.title,
+          description: payload.description,
+          body: payload.body,
+          authorId: payload.authorId,
+        }),
       });
 
       if (!res.ok) {
@@ -87,13 +92,13 @@ export default function EntriesPage() {
   }
 
   return (
-    <div className="flex min-h-screen gap-8 p-8">
-      <aside className="w-80">
-        <h2 className="mb-4 text-xl font-semibold">Entries</h2>
+    <div className="flex min-h-screen gap-5 p-6">
+      <aside className="w-64 shrink-0">
+        <h2 className="mb-3 text-lg font-semibold">Entries</h2>
         <div className="mb-4">
           <button
             onClick={() => setSelected(null)}
-            className="mb-2 w-full rounded bg-green-600 px-3 py-2 text-white"
+            className="mb-2 w-full rounded bg-green-600 px-3 py-2 text-sm text-white"
           >
             New Entry
           </button>
@@ -113,6 +118,7 @@ export default function EntriesPage() {
         {selected && (
           <div className="mt-6 rounded border p-4">
             <h3 className="text-lg font-medium">Preview</h3>
+            <p className="mt-1 text-sm text-zinc-600">{selected.description || "No description"}</p>
             <div className="prose prose-sm mt-4 max-w-none">
               <p className="text-sm text-zinc-600">
                 {typeof selected.body === "string" ? selected.body.slice(0, 300) : "Rich content"}

@@ -1,6 +1,7 @@
 export type Entry = {
   id: string;
   title: string;
+  description: string;
   body: string;
   createdAt: string;
   updatedAt: string;
@@ -15,6 +16,7 @@ export function newEntry(data: Partial<Entry> = {}): Entry {
   return {
     id: generateId(),
     title: data.title ?? "Untitled",
+    description: data.description ?? "",
     body: data.body ?? "",
     createdAt: now,
     updatedAt: now,
@@ -28,9 +30,9 @@ export function newEntry(data: Partial<Entry> = {}): Entry {
 function generateId(): string {
   try {
     // modern runtimes
-    // @ts-ignore
+    // @ts-expect-error browser/runtime crypto is available in modern environments
     if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function")
-      // @ts-ignore
+      // @ts-expect-error browser/runtime crypto is available in modern environments
       return crypto.randomUUID();
   } catch {}
   return Math.random().toString(36).slice(2, 10);

@@ -248,13 +248,13 @@ export default function RichTextEditor({ initialContent = "", onChange, editable
       }),
       TaskList.configure({
         HTMLAttributes: {
-          class: "space-y-1",
+          class: "step-list",
         },
       }),
       TaskItem.configure({
-        nested: true,
+        nested: false,
         HTMLAttributes: {
-          class: "flex items-start gap-2",
+          class: "step-item",
         },
       }),
       Underline,
@@ -269,6 +269,11 @@ export default function RichTextEditor({ initialContent = "", onChange, editable
     extensions,
     content: initialContent || "<p></p>",
     editable,
+    editorProps: {
+      attributes: {
+        class: "ProseMirror prose max-w-none min-h-[22rem] p-1 focus:outline-none",
+      },
+    },
     onUpdate: handleUpdate,
   });
 
@@ -411,27 +416,15 @@ export default function RichTextEditor({ initialContent = "", onChange, editable
             </button>
 
             <button
-              onClick={() => editor.chain().focus().toggleOrderedList().run()}
-              className={`rounded px-2 py-1 text-sm transition ${
-                editor.isActive("orderedList")
-                  ? "bg-blue-600 text-white"
-                  : "border border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
-              }`}
-              title="Numbered List"
-            >
-              1. List
-            </button>
-
-            <button
               onClick={() => editor.chain().focus().toggleTaskList().run()}
               className={`rounded px-2 py-1 text-sm transition ${
                 editor.isActive("taskList")
                   ? "bg-blue-600 text-white"
                   : "border border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
               }`}
-              title="Task List"
+              title="Step List"
             >
-              Task
+              Step
             </button>
 
             <div className="w-px bg-gray-300" />
@@ -665,8 +658,15 @@ export default function RichTextEditor({ initialContent = "", onChange, editable
         </div>
       )}
 
-      <div className="min-h-64 bg-white p-4 text-gray-900 focus-within:ring-1 focus-within:ring-blue-500">
-        <EditorContent editor={editor} />
+      <div
+        className="min-h-64 bg-white p-4 text-gray-900 focus-within:ring-1 focus-within:ring-blue-500"
+        onMouseDown={(event) => {
+          const target = event.target as HTMLElement;
+          if (target.closest(".ProseMirror")) return;
+          editor.chain().focus().run();
+        }}
+      >
+        <EditorContent editor={editor} className="tiptap-root min-h-[22rem]" />
       </div>
     </div>
   );

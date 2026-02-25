@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 
+function normalizeDescription(value: unknown): string {
+  return String(value ?? "").trim().slice(0, 100);
+}
+
 export async function GET() {
   try {
     const entries = await prisma.entry.findMany({ orderBy: { createdAt: "desc" } });
@@ -18,6 +22,7 @@ export async function POST(request: Request) {
     const created = await prisma.entry.create({
       data: {
         title: payload.title ?? "Untitled",
+        description: normalizeDescription(payload.description),
         body: payload.body ?? "",
         authorId: payload.authorId ?? null,
       },

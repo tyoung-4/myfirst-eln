@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 
+function normalizeDescription(value: unknown): string {
+  return String(value ?? "").trim().slice(0, 100);
+}
+
 export async function GET(_request: Request, { params }: { params: { id: string } }) {
   try {
     const found = await prisma.entry.findUnique({ where: { id: params.id } });
@@ -20,6 +24,7 @@ export async function PUT(request: Request, { params }: { params: { id: string }
       where: { id: params.id },
       data: {
         title: payload.title,
+        description: normalizeDescription(payload.description),
         body: payload.body,
         // increment version on update
         version: { increment: 1 },
