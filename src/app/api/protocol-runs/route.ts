@@ -8,19 +8,13 @@ type Actor = {
   role: "ADMIN" | "MEMBER";
 };
 
-function normalizeDescription(value: unknown): string {
-  return String(value ?? "").trim().slice(0, 100);
-}
-
 function getActorFromRequest(request?: Request): Actor {
   const headerId = request?.headers.get("x-user-id")?.trim();
   const headerName = request?.headers.get("x-user-name")?.trim();
   const headerRole = request?.headers.get("x-user-role")?.trim().toUpperCase();
 
   const name = headerName || "Default";
-  const safeId =
-    headerId ||
-    (name === "Default" ? "default-user" : `default-${name.toLowerCase().replace(/[^a-z0-9]+/g, "-") || "user"}`);
+  const safeId = headerId || (name === "Default" ? "default-user" : `default-${name.toLowerCase().replace(/[^a-z0-9]+/g, "-") || "user"}`);
   const role: "ADMIN" | "MEMBER" = headerRole === "ADMIN" ? "ADMIN" : "MEMBER";
 
   return {
@@ -52,20 +46,19 @@ export async function GET(request: Request) {
     const actor = getActorFromRequest(request);
     await ensureActor(actor);
 
-    const entries = await prisma.entry.findMany({
+    const runs = await prisma.protocolRun.findMany({
       orderBy: { createdAt: "desc" },
       include: {
-        author: {
-          select: { id: true, name: true, role: true },
-        },
+        sourceEntry: { select: { id: true, title: true, description: true } },
+        runner: { select: { id: true, name: true, role: true } },
       },
     });
 
-    return NextResponse.json(entries);
+    return NextResponse.json(runs);
   } catch (error) {
-    console.error("GET /api/entries failed:", error);
+    console.error("GET /api/protocol-runs failed:", error);
     const detail = process.env.NODE_ENV === "development" && error instanceof Error ? error.message : undefined;
-    return NextResponse.json({ error: "Failed to load entries", detail }, { status: 500 });
+    return NextResponse.json({ error: "Failed to load protocol runs", detail }, { status: 500 });
   }
 }
 
@@ -75,23 +68,39 @@ export async function POST(request: Request) {
     await ensureActor(actor);
 
     const payload = await request.json().catch(() => ({}));
-    const created = await prisma.entry.create({
+    const sourceEntryId = String(payload.sourceEntryId ?? "").trim();
+    if (!sourceEntryId) {
+      return NextResponse.json({ error: "sourceEntryId is required" }, { status: 400 });
+    }
+
+    const source = await prisma.entry.findUnique({ where: { id: sourceEntryId } });
+    if (!source) return new NextResponse(null, { status: 404 });
+
+    const runCount = await prisma.protocolRun.count({ where: { sourceEntryId } });
+    const created = await prisma.protocolRun.create({
       data: {
-        title: payload.title ?? "Untitled",
-        description: normalizeDescription(payload.description),
-        body: payload.body ?? "",
-        authorId: actor.id,
+        sourceEntryId,
+        title: `${source.title} - Run ${runCount + 1}`,
+        status: "IN_PROGRESS",
+        locked: true,
+        runBody: source.body,
+        interactionState: JSON.stringify({
+          stepCompletion: {},
+          entryFields: {},
+          timers: {},
+        }),
+        runnerId: actor.id,
       },
       include: {
-        author: {
-          select: { id: true, name: true, role: true },
-        },
+        sourceEntry: { select: { id: true, title: true, description: true } },
+        runner: { select: { id: true, name: true, role: true } },
       },
     });
+
     return NextResponse.json(created, { status: 201 });
   } catch (error) {
-    console.error("POST /api/entries failed:", error);
+    console.error("POST /api/protocol-runs failed:", error);
     const detail = process.env.NODE_ENV === "development" && error instanceof Error ? error.message : undefined;
-    return NextResponse.json({ error: "Failed to create entry", detail }, { status: 500 });
+    return NextResponse.json({ error: "Failed to create protocol run", detail }, { status: 500 });
   }
 }

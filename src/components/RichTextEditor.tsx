@@ -50,6 +50,7 @@ function MeasurementFieldView({ node, updateAttributes, editor }: NodeViewProps)
   const label = String(node.attrs.label ?? "Undefined");
   const unit = String(node.attrs.unit ?? "");
   const value = String(node.attrs.value ?? "");
+  const inputWidth = `${Math.max(8, Math.min(48, value.length + 2))}ch`;
 
   return (
     <NodeViewWrapper as="span" className="inline-block align-middle">
@@ -57,10 +58,19 @@ function MeasurementFieldView({ node, updateAttributes, editor }: NodeViewProps)
         <span className="font-medium">{label}</span>
         <input
           value={value}
-          onChange={(e) => updateAttributes({ value: e.target.value })}
+          onChange={(e) => updateAttributes({ value: e.target.value.replace(/[\n\r\t]/g, "") })}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === "Tab") e.preventDefault();
+          }}
+          onPaste={(e) => {
+            e.preventDefault();
+            const pasted = e.clipboardData.getData("text").replace(/[\n\r\t]/g, "");
+            updateAttributes({ value: `${value}${pasted}` });
+          }}
           disabled={!editor.isEditable}
           placeholder="value"
-          className="w-20 rounded border border-blue-200 bg-white px-2 py-1 text-xs text-zinc-900"
+          style={{ width: inputWidth }}
+          className="min-w-[8ch] rounded border border-blue-200 bg-white px-2 py-1 text-xs text-zinc-900"
         />
         {unit ? <span>{unit}</span> : null}
       </span>
@@ -127,7 +137,7 @@ const MeasurementFieldNode = Node.create({
   atom: true,
   addAttributes() {
     return {
-      label: { default: "Mass" },
+      label: { default: "Undefined" },
       unit: { default: "" },
       value: { default: "" },
     };

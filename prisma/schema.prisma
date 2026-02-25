@@ -14,6 +14,7 @@ model User {
   role      String   @default("MEMBER")
   createdAt DateTime @default(now())
   entries   Entry[]
+  protocolRuns ProtocolRun[]
 }
 
 model Entry {
@@ -28,6 +29,7 @@ model Entry {
   authorId   String?
   tags       Tag[]        @relation("EntryTags")
   attachments Attachment[]
+  protocolRuns ProtocolRun[]
 }
 
 model Attachment {
@@ -46,4 +48,19 @@ model Tag {
   id    String  @id @default(uuid())
   name  String  @unique
   entries Entry[] @relation("EntryTags")
+}
+
+model ProtocolRun {
+  id               String   @id @default(uuid())
+  title            String
+  status           String   @default("IN_PROGRESS")
+  locked           Boolean  @default(true)
+  runBody          String
+  interactionState String   @default("{}")
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  sourceEntry      Entry    @relation(fields: [sourceEntryId], references: [id])
+  sourceEntryId    String
+  runner           User?    @relation(fields: [runnerId], references: [id])
+  runnerId         String?
 }
