@@ -17,7 +17,8 @@ export default function Editor({ initial = {}, onSave, onCancel, saving = false 
   return (
     <div className="w-full max-w-4xl">
       <input
-        value={title}
+        key={`title-${initial.id ?? "new"}`}
+        defaultValue={initial.title ?? ""}
         onChange={(e) => setTitle(e.target.value)}
         placeholder="Title"
         className="mb-4 w-full rounded border px-3 py-2 text-2xl font-semibold"
@@ -25,14 +26,15 @@ export default function Editor({ initial = {}, onSave, onCancel, saving = false 
       <div className="mb-4">
         <label className="mb-2 block text-sm font-medium">Body</label>
         <RichTextEditor
-          initialContent={body}
+          key={initial.id ?? "new-entry"}
+          initialContent={initial.body ?? ""}
           onChange={(content) => setBody(content)}
           editable={true}
         />
       </div>
       <div className="flex gap-2">
         <button
-          onClick={() => onSave({ title, body })}
+          onClick={() => onSave({ id: initial.id, title: title || initial.title || "", body: body || initial.body || "" })}
           disabled={saving}
           className="rounded bg-blue-600 px-4 py-2 text-white disabled:opacity-60"
         >

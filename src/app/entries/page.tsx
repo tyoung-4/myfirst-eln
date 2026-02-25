@@ -13,8 +13,14 @@ export default function EntriesPage() {
     setLoading(true);
     try {
       const res = await fetch("/api/entries");
-      const data = (await res.json()) as Entry[];
-      setEntries(data);
+      if (!res.ok) {
+        const text = await res.text().catch(() => "<no body>");
+        console.error("Failed to load entries:", res.status, text);
+        setEntries([]);
+      } else {
+        const data = (await res.json()) as Entry[];
+        setEntries(data);
+      }
     } catch (e) {
       console.error(e);
     } finally {
@@ -29,14 +35,28 @@ export default function EntriesPage() {
   async function handleSave(payload: Partial<Entry>) {
     setLoading(true);
     try {
-      const res = await fetch("/api/entries", {
-        method: "POST",
+      const isUpdate = Boolean(payload.id);
+      const endpoint = isUpdate ? `/api/entries/${payload.id}` : "/api/entries";
+      const method = isUpdate ? "PUT" : "POST";
+      const res = await fetch(endpoint, {
+        method,
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({ title: payload.title, body: payload.body, authorId: payload.authorId }),
       });
-      const created = await res.json();
-      setEntries((s) => [created, ...s]);
-      setSelected(created);
+
+      if (!res.ok) {
+        const text = await res.text().catch(() => "<no body>");
+        console.error(`Failed to ${isUpdate ? "update" : "create"} entry:`, res.status, text);
+        throw new Error(`${isUpdate ? "Update" : "Create"} failed`);
+      }
+
+      const saved = (await res.json()) as Entry;
+      if (isUpdate) {
+        setEntries((s) => s.map((e) => (e.id === saved.id ? saved : e)));
+      } else {
+        setEntries((s) => [saved, ...s]);
+      }
+      setSelected(saved);
     } finally {
       setLoading(false);
     }

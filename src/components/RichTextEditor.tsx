@@ -1,7 +1,8 @@
 "use client";
 
-import React, { useCallback, useState } from "react";
-import { useEditor, EditorContent } from "@tiptap/react";
+import React, { useCallback, useMemo, useState } from "react";
+import { EditorContent, NodeViewWrapper, ReactNodeViewRenderer, useEditor, type NodeViewProps } from "@tiptap/react";
+import { mergeAttributes, Node } from "@tiptap/core";
 import StarterKit from "@tiptap/starter-kit";
 import Image from "@tiptap/extension-image";
 import Table from "@tiptap/extension-table";
@@ -19,22 +20,193 @@ type Props = {
   editable?: boolean;
 };
 
+type EntryTypeOption = {
+  label: string;
+  defaultUnit: string;
+};
+
+const ENTRY_TYPE_OPTIONS: EntryTypeOption[] = [
+  { label: "Mass", defaultUnit: "g" },
+  { label: "Volume", defaultUnit: "mL" },
+  { label: "Concentration", defaultUnit: "mM" },
+  { label: "Cell Count", defaultUnit: "cells" },
+  { label: "Temperature", defaultUnit: "deg C" },
+  { label: "pH", defaultUnit: "pH" },
+  { label: "Time", defaultUnit: "min" },
+];
+
+const UNIT_OPTIONS = ["g", "mg", "ug", "mL", "uL", "L", "mM", "uM", "nM", "cells", "%", "min", "hr", "deg C", "pH"];
+
+function formatDuration(totalSeconds: number) {
+  const minutes = Math.floor(totalSeconds / 60)
+    .toString()
+    .padStart(2, "0");
+  const seconds = (totalSeconds % 60).toString().padStart(2, "0");
+  return `${minutes}:${seconds}`;
+}
+
+function MeasurementFieldView({ node, updateAttributes, editor }: NodeViewProps) {
+  const label = String(node.attrs.label ?? "Mass");
+  const unit = String(node.attrs.unit ?? "g");
+  const value = String(node.attrs.value ?? "");
+
+  return (
+    <NodeViewWrapper as="span" className="inline-block align-middle">
+      <span className="inline-flex items-center gap-2 rounded border border-blue-300 bg-blue-50 px-2 py-1 text-xs text-blue-900" contentEditable={false}>
+        <span className="font-medium">{label}</span>
+        <input
+          value={value}
+          onChange={(e) => updateAttributes({ value: e.target.value })}
+          disabled={!editor.isEditable}
+          placeholder="value"
+          className="w-20 rounded border border-blue-200 bg-white px-2 py-1 text-xs text-zinc-900"
+        />
+        <span>{unit}</span>
+      </span>
+    </NodeViewWrapper>
+  );
+}
+
+function TimerFieldView({ node }: NodeViewProps) {
+  const label = String(node.attrs.label ?? "Timer");
+  const seconds = Number(node.attrs.seconds ?? 60);
+  const [remaining, setRemaining] = useState(seconds);
+  const [running, setRunning] = useState(false);
+
+  React.useEffect(() => {
+    setRemaining(seconds);
+    setRunning(false);
+  }, [seconds]);
+
+  React.useEffect(() => {
+    if (!running) return;
+    const id = window.setInterval(() => {
+      setRemaining((prev) => {
+        if (prev <= 1) {
+          window.clearInterval(id);
+          setRunning(false);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => window.clearInterval(id);
+  }, [running]);
+
+  return (
+    <NodeViewWrapper as="span" className="inline-block align-middle">
+      <span className="inline-flex items-center gap-2 rounded border border-amber-300 bg-amber-50 px-2 py-1 text-xs text-amber-900" contentEditable={false}>
+        <span className="font-medium">{label}</span>
+        <span className="font-mono">{formatDuration(remaining)}</span>
+        <button
+          onClick={() => setRunning((v) => !v)}
+          className="rounded border border-amber-400 px-2 py-0.5 text-[11px]"
+        >
+          {running ? "Pause" : "Start"}
+        </button>
+        <button
+          onClick={() => {
+            setRunning(false);
+            setRemaining(seconds);
+          }}
+          className="rounded border border-amber-400 px-2 py-0.5 text-[11px]"
+        >
+          Reset
+        </button>
+      </span>
+    </NodeViewWrapper>
+  );
+}
+
+const MeasurementFieldNode = Node.create({
+  name: "measurementField",
+  group: "inline",
+  inline: true,
+  atom: true,
+  addAttributes() {
+    return {
+      label: { default: "Mass" },
+      unit: { default: "g" },
+      value: { default: "" },
+    };
+  },
+  parseHTML() {
+    return [{ tag: "span[data-entry-node='measurement']" }];
+  },
+  renderHTML({ HTMLAttributes }) {
+    const label = String(HTMLAttributes.label ?? "Mass");
+    const value = String(HTMLAttributes.value ?? "");
+    const unit = String(HTMLAttributes.unit ?? "g");
+    return [
+      "span",
+      mergeAttributes(HTMLAttributes, {
+        "data-entry-node": "measurement",
+        class: "entry-measurement",
+      }),
+      `${label}: ${value || "__"} ${unit}`,
+    ];
+  },
+  addNodeView() {
+    return ReactNodeViewRenderer(MeasurementFieldView);
+  },
+});
+
+const TimerFieldNode = Node.create({
+  name: "timerField",
+  group: "inline",
+  inline: true,
+  atom: true,
+  addAttributes() {
+    return {
+      label: { default: "Timer" },
+      seconds: { default: 60 },
+    };
+  },
+  parseHTML() {
+    return [{ tag: "span[data-entry-node='timer']" }];
+  },
+  renderHTML({ HTMLAttributes }) {
+    const label = String(HTMLAttributes.label ?? "Timer");
+    const seconds = Number(HTMLAttributes.seconds ?? 60);
+    return [
+      "span",
+      mergeAttributes(HTMLAttributes, {
+        "data-entry-node": "timer",
+        class: "entry-timer",
+      }),
+      `${label} (${formatDuration(seconds)})`,
+    ];
+  },
+  addNodeView() {
+    return ReactNodeViewRenderer(TimerFieldView);
+  },
+});
+
 export default function RichTextEditor({ initialContent = "", onChange, editable = true }: Props) {
   const [tableRows, setTableRows] = useState(3);
   const [tableCols, setTableCols] = useState(3);
   const [showTableModal, setShowTableModal] = useState(false);
+  const [showEntryFieldModal, setShowEntryFieldModal] = useState(false);
+  const [showTimerModal, setShowTimerModal] = useState(false);
+  const [entryType, setEntryType] = useState(ENTRY_TYPE_OPTIONS[0].label);
+  const [entryUnit, setEntryUnit] = useState(ENTRY_TYPE_OPTIONS[0].defaultUnit);
+  const [customLabel, setCustomLabel] = useState("");
+  const [timerLabel, setTimerLabel] = useState("Step Timer");
+  const [timerMinutes, setTimerMinutes] = useState(5);
+  const [timerSeconds, setTimerSeconds] = useState(0);
 
   const handleUpdate = useCallback(
-    ({ editor }: any) => {
+    ({ editor }: { editor: { getHTML: () => string } }) => {
       onChange?.(editor.getHTML());
     },
     [onChange]
   );
 
-  const editor = useEditor({
-    extensions: [
+  const extensions = useMemo(
+    () => [
       StarterKit.configure({
-        heading: { levels: [1, 2, 3, 4, 5, 6, 7, 8] },
+        heading: { levels: [1, 2, 3, 4, 5, 6] },
         codeBlock: { languageClassPrefix: "language-" },
         bulletList: {
           HTMLAttributes: {
@@ -53,7 +225,7 @@ export default function RichTextEditor({ initialContent = "", onChange, editable
         },
       }),
       Image.configure({ allowBase64: true }),
-      Table.configure({ 
+      Table.configure({
         resizable: false,
         HTMLAttributes: {
           class: "border-collapse border border-blue-900 w-full table-fixed",
@@ -79,7 +251,7 @@ export default function RichTextEditor({ initialContent = "", onChange, editable
           class: "space-y-1",
         },
       }),
-      TaskItem.configure({ 
+      TaskItem.configure({
         nested: true,
         HTMLAttributes: {
           class: "flex items-start gap-2",
@@ -87,7 +259,14 @@ export default function RichTextEditor({ initialContent = "", onChange, editable
       }),
       Underline,
       Link.configure({ openOnClick: false }),
+      MeasurementFieldNode,
+      TimerFieldNode,
     ],
+    []
+  );
+
+  const editor = useEditor({
+    extensions,
     content: initialContent || "<p></p>",
     editable,
     onUpdate: handleUpdate,
@@ -106,20 +285,57 @@ export default function RichTextEditor({ initialContent = "", onChange, editable
     editor
       .chain()
       .focus()
-      .insertTable({ 
+      .insertTable({
         rows: parseInt(tableRows.toString()),
-        cols: parseInt(tableCols.toString()), 
-        withHeaderRow: true 
+        cols: parseInt(tableCols.toString()),
+        withHeaderRow: true,
       })
       .run();
     setShowTableModal(false);
   };
 
+  const insertMeasurementField = () => {
+    const selectedOption = ENTRY_TYPE_OPTIONS.find((option) => option.label === entryType);
+    const label = customLabel.trim() || entryType;
+    editor
+      .chain()
+      .focus()
+      .insertContent({
+        type: "measurementField",
+        attrs: {
+          label,
+          unit: entryUnit || selectedOption?.defaultUnit || "g",
+          value: "",
+        },
+      })
+      .insertContent(" ")
+      .run();
+    setShowEntryFieldModal(false);
+  };
+
+  const insertTimerField = () => {
+    const safeMinutes = Math.max(0, timerMinutes || 0);
+    const safeSeconds = Math.min(59, Math.max(0, timerSeconds || 0));
+    const totalSeconds = safeMinutes * 60 + safeSeconds;
+    editor
+      .chain()
+      .focus()
+      .insertContent({
+        type: "timerField",
+        attrs: {
+          label: timerLabel.trim() || "Step Timer",
+          seconds: Math.max(1, totalSeconds),
+        },
+      })
+      .insertContent(" ")
+      .run();
+    setShowTimerModal(false);
+  };
+
   return (
-    <div className="w-full rounded border border-gray-300 overflow-hidden">
+    <div className="w-full overflow-hidden rounded border border-gray-300">
       {editable && (
-        <div className="border-b border-gray-200 bg-gray-50 p-3 space-y-2">
-          {/* Row 1: Style & Text Formatting */}
+        <div className="space-y-2 border-b border-gray-200 bg-gray-50 p-3">
           <div className="flex flex-wrap gap-1">
             <select
               onChange={(e) => {
@@ -127,11 +343,11 @@ export default function RichTextEditor({ initialContent = "", onChange, editable
                 if (value === "p") {
                   editor.chain().focus().setParagraph().run();
                 } else if (value.startsWith("h")) {
-                  const level = parseInt(value[1]) as any;
+                  const level = parseInt(value[1], 10) as 1 | 2 | 3 | 4 | 5 | 6;
                   editor.chain().focus().setHeading({ level }).run();
                 }
               }}
-              className="px-2 py-1 text-sm border border-gray-300 rounded bg-white text-gray-700 hover:bg-gray-50"
+              className="rounded border border-gray-300 bg-white px-2 py-1 text-sm text-gray-700 hover:bg-gray-50"
             >
               <option value="p">Normal</option>
               <option value="h1">Heading 1</option>
@@ -140,17 +356,15 @@ export default function RichTextEditor({ initialContent = "", onChange, editable
               <option value="h4">Subheader 1</option>
               <option value="h5">Subheader 2</option>
               <option value="h6">Subheader 3</option>
-              <option value="h7">Subheader 4</option>
-              <option value="h8">Subheader 5</option>
             </select>
 
             <button
               onClick={() => editor.chain().focus().toggleBold().run()}
               disabled={!editor.can().chain().focus().toggleBold().run()}
-              className={`px-2 py-1 text-sm rounded transition ${
+              className={`rounded px-2 py-1 text-sm transition ${
                 editor.isActive("bold")
                   ? "bg-blue-600 text-white"
-                  : "bg-white text-gray-700 border border-gray-300 hover:bg-gray-50"
+                  : "border border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
               }`}
               title="Bold (Ctrl+B)"
             >
@@ -160,10 +374,10 @@ export default function RichTextEditor({ initialContent = "", onChange, editable
             <button
               onClick={() => editor.chain().focus().toggleItalic().run()}
               disabled={!editor.can().chain().focus().toggleItalic().run()}
-              className={`px-2 py-1 text-sm rounded transition ${
+              className={`rounded px-2 py-1 text-sm transition ${
                 editor.isActive("italic")
                   ? "bg-blue-600 text-white"
-                  : "bg-white text-gray-700 border border-gray-300 hover:bg-gray-50"
+                  : "border border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
               }`}
               title="Italic (Ctrl+I)"
             >
@@ -172,10 +386,10 @@ export default function RichTextEditor({ initialContent = "", onChange, editable
 
             <button
               onClick={() => editor.chain().focus().toggleUnderline().run()}
-              className={`px-2 py-1 text-sm rounded transition ${
+              className={`rounded px-2 py-1 text-sm transition ${
                 editor.isActive("underline")
                   ? "bg-blue-600 text-white"
-                  : "bg-white text-gray-700 border border-gray-300 hover:bg-gray-50"
+                  : "border border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
               }`}
               title="Underline (Ctrl+U)"
             >
@@ -186,10 +400,10 @@ export default function RichTextEditor({ initialContent = "", onChange, editable
 
             <button
               onClick={() => editor.chain().focus().toggleBulletList().run()}
-              className={`px-2 py-1 text-sm rounded transition ${
+              className={`rounded px-2 py-1 text-sm transition ${
                 editor.isActive("bulletList")
                   ? "bg-blue-600 text-white"
-                  : "bg-white text-gray-700 border border-gray-300 hover:bg-gray-50"
+                  : "border border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
               }`}
               title="Bullet List"
             >
@@ -198,10 +412,10 @@ export default function RichTextEditor({ initialContent = "", onChange, editable
 
             <button
               onClick={() => editor.chain().focus().toggleOrderedList().run()}
-              className={`px-2 py-1 text-sm rounded transition ${
+              className={`rounded px-2 py-1 text-sm transition ${
                 editor.isActive("orderedList")
                   ? "bg-blue-600 text-white"
-                  : "bg-white text-gray-700 border border-gray-300 hover:bg-gray-50"
+                  : "border border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
               }`}
               title="Numbered List"
             >
@@ -210,45 +424,41 @@ export default function RichTextEditor({ initialContent = "", onChange, editable
 
             <button
               onClick={() => editor.chain().focus().toggleTaskList().run()}
-              className={`px-2 py-1 text-sm rounded transition ${
+              className={`rounded px-2 py-1 text-sm transition ${
                 editor.isActive("taskList")
                   ? "bg-blue-600 text-white"
-                  : "bg-white text-gray-700 border border-gray-300 hover:bg-gray-50"
+                  : "border border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
               }`}
               title="Task List"
             >
-              ☑ Task
+              Task
             </button>
 
             <div className="w-px bg-gray-300" />
 
             <button
-              onClick={() => editor.chain().focus().sinkListItem("listItem").run()}
-              disabled={!editor.can().chain().focus().sinkListItem("listItem").run()}
-              className="px-2 py-1 text-sm rounded bg-white text-gray-700 border border-gray-300 hover:bg-gray-50 disabled:opacity-50"
-              title="Indent (Tab)"
+              onClick={() => setShowEntryFieldModal(true)}
+              className="rounded border border-gray-300 bg-white px-2 py-1 text-sm text-gray-700 hover:bg-gray-50"
+              title="Insert Entry Field"
             >
-              →
+              + Entry Field
             </button>
-
             <button
-              onClick={() => editor.chain().focus().liftListItem("listItem").run()}
-              disabled={!editor.can().chain().focus().liftListItem("listItem").run()}
-              className="px-2 py-1 text-sm rounded bg-white text-gray-700 border border-gray-300 hover:bg-gray-50 disabled:opacity-50"
-              title="Outdent (Shift+Tab)"
+              onClick={() => setShowTimerModal(true)}
+              className="rounded border border-gray-300 bg-white px-2 py-1 text-sm text-gray-700 hover:bg-gray-50"
+              title="Insert Timer"
             >
-              ←
+              + Timer
             </button>
           </div>
 
-          {/* Row 2: Advanced */}
           <div className="flex flex-wrap gap-1">
             <button
               onClick={() => editor.chain().focus().toggleCodeBlock().run()}
-              className={`px-2 py-1 text-sm rounded transition ${
+              className={`rounded px-2 py-1 text-sm transition ${
                 editor.isActive("codeBlock")
                   ? "bg-blue-600 text-white"
-                  : "bg-white text-gray-700 border border-gray-300 hover:bg-gray-50"
+                  : "border border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
               }`}
               title="Code Block"
             >
@@ -257,18 +467,18 @@ export default function RichTextEditor({ initialContent = "", onChange, editable
 
             <button
               onClick={() => addImage()}
-              className="px-2 py-1 text-sm rounded bg-white text-gray-700 border border-gray-300 hover:bg-gray-50"
+              className="rounded border border-gray-300 bg-white px-2 py-1 text-sm text-gray-700 hover:bg-gray-50"
               title="Insert Image"
             >
-              🖼 Image
+              Image
             </button>
 
             <button
               onClick={() => setShowTableModal(true)}
-              className="px-2 py-1 text-sm rounded bg-white text-gray-700 border border-gray-300 hover:bg-gray-50"
+              className="rounded border border-gray-300 bg-white px-2 py-1 text-sm text-gray-700 hover:bg-gray-50"
               title="Insert Table"
             >
-              ⊞ Table
+              Table
             </button>
 
             <div className="w-px bg-gray-300" />
@@ -276,63 +486,125 @@ export default function RichTextEditor({ initialContent = "", onChange, editable
             <button
               onClick={() => editor.chain().focus().undo().run()}
               disabled={!editor.can().chain().focus().undo().run()}
-              className="px-2 py-1 text-sm rounded bg-white text-gray-700 border border-gray-300 hover:bg-gray-50 disabled:opacity-50"
+              className="rounded border border-gray-300 bg-white px-2 py-1 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50"
               title="Undo"
             >
-              ↶ Undo
+              Undo
             </button>
 
             <button
               onClick={() => editor.chain().focus().redo().run()}
               disabled={!editor.can().chain().focus().redo().run()}
-              className="px-2 py-1 text-sm rounded bg-white text-gray-700 border border-gray-300 hover:bg-gray-50 disabled:opacity-50"
+              className="rounded border border-gray-300 bg-white px-2 py-1 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50"
               title="Redo"
             >
-              ↷ Redo
+              Redo
             </button>
           </div>
         </div>
       )}
 
-      {/* Table Modal */}
       {showTableModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded shadow-lg p-6 max-w-sm w-full mx-4">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">Insert Table</h3>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="mx-4 w-full max-w-sm rounded bg-white p-6 shadow-lg">
+            <h3 className="mb-4 text-lg font-semibold text-gray-900">Insert Table</h3>
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Rows</label>
+                <label className="mb-1 block text-sm font-medium text-gray-700">Rows</label>
                 <input
                   type="number"
                   min="1"
                   max="20"
                   value={tableRows}
-                  onChange={(e) => setTableRows(Math.max(1, parseInt(e.target.value) || 1))}
-                  className="w-full px-3 py-2 border border-gray-300 rounded text-gray-900"
+                  onChange={(e) => setTableRows(Math.max(1, parseInt(e.target.value, 10) || 1))}
+                  className="w-full rounded border border-gray-300 px-3 py-2 text-gray-900"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Columns</label>
+                <label className="mb-1 block text-sm font-medium text-gray-700">Columns</label>
                 <input
                   type="number"
                   min="1"
                   max="20"
                   value={tableCols}
-                  onChange={(e) => setTableCols(Math.max(1, parseInt(e.target.value) || 1))}
-                  className="w-full px-3 py-2 border border-gray-300 rounded text-gray-900"
+                  onChange={(e) => setTableCols(Math.max(1, parseInt(e.target.value, 10) || 1))}
+                  className="w-full rounded border border-gray-300 px-3 py-2 text-gray-900"
                 />
               </div>
             </div>
-            <div className="flex gap-2 mt-6 justify-end">
+            <div className="mt-6 flex justify-end gap-2">
               <button
                 onClick={() => setShowTableModal(false)}
-                className="px-4 py-2 rounded border border-gray-300 text-gray-700 hover:bg-gray-50"
+                className="rounded border border-gray-300 px-4 py-2 text-gray-700 hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button onClick={insertTable} className="rounded bg-blue-600 px-4 py-2 text-white hover:bg-blue-700">
+                Insert
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showEntryFieldModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="mx-4 w-full max-w-md rounded bg-white p-6 shadow-lg">
+            <h3 className="mb-4 text-lg font-semibold text-gray-900">Insert Entry Field</h3>
+            <div className="space-y-4">
+              <div>
+                <label className="mb-1 block text-sm font-medium text-gray-700">Field Type</label>
+                <select
+                  value={entryType}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    setEntryType(value);
+                    const option = ENTRY_TYPE_OPTIONS.find((o) => o.label === value);
+                    if (option) setEntryUnit(option.defaultUnit);
+                  }}
+                  className="w-full rounded border border-gray-300 px-3 py-2 text-gray-900"
+                >
+                  {ENTRY_TYPE_OPTIONS.map((option) => (
+                    <option key={option.label} value={option.label}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium text-gray-700">Custom Label (optional)</label>
+                <input
+                  value={customLabel}
+                  onChange={(e) => setCustomLabel(e.target.value)}
+                  placeholder="e.g., Bead slurry volume"
+                  className="w-full rounded border border-gray-300 px-3 py-2 text-gray-900"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium text-gray-700">Unit</label>
+                <select
+                  value={entryUnit}
+                  onChange={(e) => setEntryUnit(e.target.value)}
+                  className="w-full rounded border border-gray-300 px-3 py-2 text-gray-900"
+                >
+                  {UNIT_OPTIONS.map((unit) => (
+                    <option key={unit} value={unit}>
+                      {unit}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <div className="mt-6 flex justify-end gap-2">
+              <button
+                onClick={() => setShowEntryFieldModal(false)}
+                className="rounded border border-gray-300 px-4 py-2 text-gray-700 hover:bg-gray-50"
               >
                 Cancel
               </button>
               <button
-                onClick={insertTable}
-                className="px-4 py-2 rounded bg-blue-600 text-white hover:bg-blue-700"
+                onClick={insertMeasurementField}
+                className="rounded bg-blue-600 px-4 py-2 text-white hover:bg-blue-700"
               >
                 Insert
               </button>
@@ -341,7 +613,59 @@ export default function RichTextEditor({ initialContent = "", onChange, editable
         </div>
       )}
 
-      <div className="bg-white text-gray-900 min-h-64 p-4 focus-within:ring-1 focus-within:ring-blue-500">
+      {showTimerModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="mx-4 w-full max-w-md rounded bg-white p-6 shadow-lg">
+            <h3 className="mb-4 text-lg font-semibold text-gray-900">Insert Timer</h3>
+            <div className="space-y-4">
+              <div>
+                <label className="mb-1 block text-sm font-medium text-gray-700">Timer Label</label>
+                <input
+                  value={timerLabel}
+                  onChange={(e) => setTimerLabel(e.target.value)}
+                  className="w-full rounded border border-gray-300 px-3 py-2 text-gray-900"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-gray-700">Minutes</label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={timerMinutes}
+                    onChange={(e) => setTimerMinutes(Math.max(0, parseInt(e.target.value, 10) || 0))}
+                    className="w-full rounded border border-gray-300 px-3 py-2 text-gray-900"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-gray-700">Seconds</label>
+                  <input
+                    type="number"
+                    min="0"
+                    max="59"
+                    value={timerSeconds}
+                    onChange={(e) => setTimerSeconds(Math.min(59, Math.max(0, parseInt(e.target.value, 10) || 0)))}
+                    className="w-full rounded border border-gray-300 px-3 py-2 text-gray-900"
+                  />
+                </div>
+              </div>
+            </div>
+            <div className="mt-6 flex justify-end gap-2">
+              <button
+                onClick={() => setShowTimerModal(false)}
+                className="rounded border border-gray-300 px-4 py-2 text-gray-700 hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button onClick={insertTimerField} className="rounded bg-blue-600 px-4 py-2 text-white hover:bg-blue-700">
+                Insert
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="min-h-64 bg-white p-4 text-gray-900 focus-within:ring-1 focus-within:ring-blue-500">
         <EditorContent editor={editor} />
       </div>
     </div>
