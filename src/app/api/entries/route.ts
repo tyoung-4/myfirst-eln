@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { TECHNIQUE_OPTIONS } from "@/models/entry";
+import { Q5_TEMPLATE_ENTRY, Q5_TEMPLATE_ENTRY_ID } from "@/lib/defaultTemplates";
 
 type Actor = {
   id: string;
@@ -54,10 +55,47 @@ async function ensureActor(actor: Actor) {
   });
 }
 
+async function ensureTemplateEntry() {
+  await prisma.user.upsert({
+    where: { id: "default-user" },
+    create: {
+      id: "default-user",
+      name: "Default",
+      email: "default-user@local.eln",
+      role: "MEMBER",
+    },
+    update: {
+      name: "Default",
+      role: "MEMBER",
+    },
+  });
+
+  await prisma.entry.upsert({
+    where: { id: Q5_TEMPLATE_ENTRY_ID },
+    create: {
+      id: Q5_TEMPLATE_ENTRY.id,
+      title: Q5_TEMPLATE_ENTRY.title,
+      description: Q5_TEMPLATE_ENTRY.description,
+      technique: Q5_TEMPLATE_ENTRY.technique,
+      body: Q5_TEMPLATE_ENTRY.body,
+      authorId: "default-user",
+      version: 1,
+    },
+    update: {
+      title: Q5_TEMPLATE_ENTRY.title,
+      description: Q5_TEMPLATE_ENTRY.description,
+      technique: Q5_TEMPLATE_ENTRY.technique,
+      body: Q5_TEMPLATE_ENTRY.body,
+      authorId: "default-user",
+    },
+  });
+}
+
 export async function GET(request: Request) {
   try {
     const actor = getActorFromRequest(request);
     await ensureActor(actor);
+    await ensureTemplateEntry();
 
     const entries = await prisma.entry.findMany({
       orderBy: { createdAt: "desc" },

@@ -3,6 +3,8 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Editor from "@/components/Editor";
 import EntryList from "@/components/EntryList";
+import AppTopNav from "@/components/AppTopNav";
+import { Q5_TEMPLATE_ENTRY_ID } from "@/lib/defaultTemplates";
 import { TECHNIQUE_OPTIONS, type Entry } from "@/models/entry";
 
 type CurrentUser = {
@@ -53,6 +55,7 @@ export default function EntriesPage() {
   );
 
   const canEdit = (entry: Entry) => {
+    if (entry.id === Q5_TEMPLATE_ENTRY_ID) return false;
     if (currentUser.role === "ADMIN") return true;
     if (currentUser.name === "Default" && (entry.authorId === "default-user" || entry.authorId === "default-default")) {
       return true;
@@ -61,6 +64,7 @@ export default function EntriesPage() {
   };
 
   const canDelete = (entry: Entry) => {
+    if (entry.id === Q5_TEMPLATE_ENTRY_ID) return false;
     if (currentUser.role === "ADMIN") return true;
     if (currentUser.name === "Default" && (entry.authorId === "default-user" || entry.authorId === "default-default")) {
       return true;
@@ -92,6 +96,10 @@ export default function EntriesPage() {
   }, [load]);
 
   async function handleSave(payload: Partial<Entry>) {
+    if (payload.id === Q5_TEMPLATE_ENTRY_ID) {
+      setSaveError("This template is permanent. Clone it first to create an editable copy.");
+      return;
+    }
     setLoading(true);
     setSaveError(null);
     try {
@@ -260,6 +268,8 @@ export default function EntriesPage() {
     });
 
     filtered.sort((a, b) => {
+      if (a.id === Q5_TEMPLATE_ENTRY_ID) return -1;
+      if (b.id === Q5_TEMPLATE_ENTRY_ID) return 1;
       if (sortBy === "oldest") return a.createdAt.localeCompare(b.createdAt);
       if (sortBy === "technique") return (a.technique || "General").localeCompare(b.technique || "General");
       if (sortBy === "author") return (a.author?.name || "Default").localeCompare(b.author?.name || "Default");
@@ -278,12 +288,13 @@ export default function EntriesPage() {
   }
 
   return (
-    <div className="flex min-h-screen flex-col gap-5 p-6">
-      <div className="flex items-center justify-between rounded border border-zinc-200 bg-white px-4 py-2">
-        <h1 className="text-base font-semibold text-zinc-900">Protocols</h1>
-        <div className="flex items-center gap-2 text-sm text-zinc-600">
+    <div className="flex min-h-screen flex-col gap-5 bg-zinc-950 p-6 text-zinc-100">
+      <AppTopNav />
+      <div className="flex items-center justify-between rounded border border-zinc-800 bg-zinc-900 px-4 py-2">
+        <h1 className="text-base font-semibold text-zinc-100">Protocols</h1>
+        <div className="flex items-center gap-2 text-sm text-zinc-400">
           <span>
-            User: <span className="font-semibold text-zinc-900">{currentUser.name}</span>
+            User: <span className="font-semibold text-zinc-100">{currentUser.name}</span>
           </span>
           <select
             value={currentUser.role}
@@ -293,7 +304,7 @@ export default function EntriesPage() {
               setSelected(null);
               setEditorMode("create");
             }}
-            className="rounded border border-zinc-300 bg-white px-2 py-1 text-xs text-zinc-700"
+            className="rounded border border-zinc-700 bg-zinc-800 px-2 py-1 text-xs text-zinc-200"
           >
             <option value="MEMBER">Login as Default</option>
             <option value="ADMIN">Login as Admin</option>
@@ -302,7 +313,7 @@ export default function EntriesPage() {
       </div>
       <div className="flex gap-5">
         <aside className="w-64 shrink-0">
-          <h2 className="mb-3 text-lg font-semibold">Protocols</h2>
+          <h2 className="mb-3 text-lg font-semibold text-zinc-100">Protocols</h2>
           <div className="mb-4">
             <button
               onClick={() => {
@@ -311,22 +322,22 @@ export default function EntriesPage() {
                 setSaveError(null);
                 setIsDirty(false);
               }}
-              className="mb-2 w-full rounded bg-green-600 px-3 py-2 text-sm text-white"
+              className="mb-2 w-full rounded bg-emerald-600 px-3 py-2 text-sm text-white hover:bg-emerald-500"
             >
               New Protocol
             </button>
           </div>
-          <div className="mb-3 space-y-2 rounded border border-zinc-200 bg-white p-2">
+          <div className="mb-3 space-y-2 rounded border border-zinc-800 bg-zinc-900 p-2">
             <input
               value={keyword}
               onChange={(e) => setKeyword(e.target.value)}
               placeholder="Search keyword"
-              className="w-full rounded border border-zinc-300 px-2 py-1 text-xs"
+              className="w-full rounded border border-zinc-700 bg-zinc-800 px-2 py-1 text-xs text-zinc-100 placeholder:text-zinc-500"
             />
             <select
               value={techniqueFilter}
               onChange={(e) => setTechniqueFilter(e.target.value)}
-              className="w-full rounded border border-zinc-300 bg-white px-2 py-1 text-xs"
+              className="w-full rounded border border-zinc-700 bg-zinc-800 px-2 py-1 text-xs text-zinc-100"
             >
               <option value="ALL">All techniques</option>
               {TECHNIQUE_OPTIONS.map((option) => (
@@ -338,7 +349,7 @@ export default function EntriesPage() {
             <select
               value={authorFilter}
               onChange={(e) => setAuthorFilter(e.target.value)}
-              className="w-full rounded border border-zinc-300 bg-white px-2 py-1 text-xs"
+              className="w-full rounded border border-zinc-700 bg-zinc-800 px-2 py-1 text-xs text-zinc-100"
             >
               <option value="ALL">All authors</option>
               {authorOptions.map((authorName) => (
@@ -350,7 +361,7 @@ export default function EntriesPage() {
             <select
               value={sortBy}
               onChange={(e) => setSortBy(e.target.value as "newest" | "oldest" | "technique" | "author")}
-              className="w-full rounded border border-zinc-300 bg-white px-2 py-1 text-xs"
+              className="w-full rounded border border-zinc-700 bg-zinc-800 px-2 py-1 text-xs text-zinc-100"
             >
               <option value="newest">Sort: Newest</option>
               <option value="oldest">Sort: Oldest</option>
@@ -370,18 +381,18 @@ export default function EntriesPage() {
         </aside>
         <main className="flex-1">
           <div className="mb-4 flex items-center justify-between">
-            <h2 className="text-xl font-semibold">Editor</h2>
+            <h2 className="text-xl font-semibold text-zinc-100">Editor</h2>
             <button
               onClick={handleRunProtocol}
               disabled={runDisabled}
-              className="rounded bg-indigo-600 px-3 py-2 text-sm text-white disabled:opacity-50"
+              className="rounded bg-indigo-600 px-3 py-2 text-sm text-white hover:bg-indigo-500 disabled:opacity-50"
             >
               Run Protocol
             </button>
           </div>
-          {runDisabled && <p className="-mt-2 mb-3 text-xs text-zinc-500">(save first!)</p>}
+          {runDisabled && <p className="-mt-2 mb-3 text-xs text-zinc-400">(save first!)</p>}
           {saveError && (
-            <div className="mb-3 rounded border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700">
+            <div className="mb-3 rounded border border-red-500/40 bg-red-950/50 px-3 py-2 text-sm text-red-200">
               {saveError}
             </div>
           )}
@@ -398,13 +409,20 @@ export default function EntriesPage() {
             saving={loading}
           />
           {selected && (
-            <div className="mt-6 rounded border p-4">
-              <h3 className="text-lg font-medium">Preview</h3>
-              <p className="mt-1 text-sm text-zinc-600">{selected.description || "No description"}</p>
-              <p className="mt-1 text-xs text-zinc-500">Author: {selected.author?.name || currentUser.name}</p>
-              <p className="mt-1 text-xs text-zinc-500">Technique: {selected.technique || "General"}</p>
+            <div className="mt-6 rounded border border-zinc-800 bg-zinc-900 p-4">
+              <h3 className="text-lg font-medium text-zinc-100">
+                Preview
+                {selected.id === Q5_TEMPLATE_ENTRY_ID && (
+                  <span className="ml-2 rounded border border-emerald-500/60 bg-emerald-500/20 px-2 py-0.5 text-xs text-emerald-200">
+                    Permanent Template
+                  </span>
+                )}
+              </h3>
+              <p className="mt-1 text-sm text-zinc-300">{selected.description || "No description"}</p>
+              <p className="mt-1 text-xs text-zinc-400">Author: {selected.author?.name || currentUser.name}</p>
+              <p className="mt-1 text-xs text-zinc-400">Technique: {selected.technique || "General"}</p>
               <div className="prose prose-sm mt-4 max-w-none">
-                <p className="text-sm text-zinc-600">
+                <p className="text-sm text-zinc-300">
                   {typeof selected.body === "string" ? selected.body.slice(0, 300) : "Rich content"}
                 </p>
               </div>

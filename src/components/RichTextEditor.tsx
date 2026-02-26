@@ -130,6 +130,41 @@ function TimerFieldView({ node }: NodeViewProps) {
   );
 }
 
+function ComponentFieldView({ node, updateAttributes, editor }: NodeViewProps) {
+  const label = String(node.attrs.label ?? "Component");
+  const unit = String(node.attrs.unit ?? "");
+  const value = String(node.attrs.value ?? "");
+  const componentInputWidth = `${Math.max(10, Math.min(64, value.length + 4))}ch`;
+  return (
+    <NodeViewWrapper as="span" className="inline-block align-middle">
+      <span
+        className="entry-component inline-flex items-center gap-2 rounded border border-emerald-300 bg-emerald-50 px-2 py-1 text-xs text-emerald-900"
+        contentEditable={false}
+      >
+        <span className="h-3.5 w-3.5 rounded border border-emerald-500 bg-white" />
+        <span className="font-medium">{label}</span>
+        <input
+          value={value}
+          onChange={(e) => updateAttributes({ value: e.target.value.replace(/[\n\r\t]/g, "") })}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === "Tab") e.preventDefault();
+          }}
+          onPaste={(e) => {
+            e.preventDefault();
+            const pasted = e.clipboardData.getData("text").replace(/[\n\r\t]/g, "");
+            updateAttributes({ value: `${value}${pasted}` });
+          }}
+          disabled={!editor.isEditable}
+          placeholder="value"
+          style={{ width: componentInputWidth }}
+          className="min-w-[10ch] rounded border border-emerald-200 bg-white px-2.5 py-1 text-xs text-zinc-900"
+        />
+        {unit ? <span>{unit}</span> : null}
+      </span>
+    </NodeViewWrapper>
+  );
+}
+
 const MeasurementFieldNode = Node.create({
   name: "measurementField",
   group: "inline",
@@ -194,18 +229,55 @@ const TimerFieldNode = Node.create({
   },
 });
 
+const ComponentFieldNode = Node.create({
+  name: "componentField",
+  group: "inline",
+  inline: true,
+  atom: true,
+  addAttributes() {
+    return {
+      label: { default: "Component" },
+      unit: { default: "" },
+      value: { default: "" },
+    };
+  },
+  parseHTML() {
+    return [{ tag: "span[data-entry-node='component']" }];
+  },
+  renderHTML({ HTMLAttributes }) {
+    const label = String(HTMLAttributes.label ?? "Component");
+    const value = String(HTMLAttributes.value ?? "");
+    const unit = String(HTMLAttributes.unit ?? "");
+    return [
+      "span",
+      mergeAttributes(HTMLAttributes, {
+        "data-entry-node": "component",
+        class: "entry-component",
+      }),
+      `${label}: ${value || "__"}${unit ? ` ${unit}` : ""}`,
+    ];
+  },
+  addNodeView() {
+    return ReactNodeViewRenderer(ComponentFieldView);
+  },
+});
+
 export default function RichTextEditor({ initialContent = "", onChange, editable = true }: Props) {
   const [tableRows, setTableRows] = useState(3);
   const [tableCols, setTableCols] = useState(3);
   const [showTableModal, setShowTableModal] = useState(false);
   const [showEntryFieldModal, setShowEntryFieldModal] = useState(false);
   const [showTimerModal, setShowTimerModal] = useState(false);
+  const [showComponentModal, setShowComponentModal] = useState(false);
   const [entryType, setEntryType] = useState(ENTRY_TYPE_OPTIONS[0].label);
   const [entryUnit, setEntryUnit] = useState(ENTRY_TYPE_OPTIONS[0].defaultUnit);
   const [customLabel, setCustomLabel] = useState("");
   const [timerLabel, setTimerLabel] = useState("Step Timer");
   const [timerMinutes, setTimerMinutes] = useState(5);
   const [timerSeconds, setTimerSeconds] = useState(0);
+  const [componentType, setComponentType] = useState(ENTRY_TYPE_OPTIONS[0].label);
+  const [componentUnit, setComponentUnit] = useState(ENTRY_TYPE_OPTIONS[0].defaultUnit);
+  const [componentCustomLabel, setComponentCustomLabel] = useState("");
 
   const handleUpdate = useCallback(
     ({ editor }: { editor: { getHTML: () => string } }) => {
@@ -272,6 +344,7 @@ export default function RichTextEditor({ initialContent = "", onChange, editable
       Link.configure({ openOnClick: false }),
       MeasurementFieldNode,
       TimerFieldNode,
+      ComponentFieldNode,
     ],
     []
   );
@@ -280,6 +353,7 @@ export default function RichTextEditor({ initialContent = "", onChange, editable
     extensions,
     content: initialContent || "<p></p>",
     editable,
+    immediatelyRender: false,
     editorProps: {
       attributes: {
         class: "ProseMirror prose max-w-none min-h-[22rem] p-1 focus:outline-none",
@@ -346,6 +420,28 @@ export default function RichTextEditor({ initialContent = "", onChange, editable
       .insertContent(" ")
       .run();
     setShowTimerModal(false);
+  };
+
+  const insertComponentField = () => {
+    const selectedOption = ENTRY_TYPE_OPTIONS.find((option) => option.label === componentType);
+    const label = componentCustomLabel.trim() || componentType;
+    editor
+      .chain()
+      .focus()
+      .insertContent({
+        type: "componentField",
+        attrs: {
+          label,
+          unit: componentUnit || selectedOption?.defaultUnit || "",
+          value: "",
+        },
+      })
+      .insertContent(" ")
+      .run();
+    setShowComponentModal(false);
+    setComponentType(ENTRY_TYPE_OPTIONS[0].label);
+    setComponentUnit(ENTRY_TYPE_OPTIONS[0].defaultUnit);
+    setComponentCustomLabel("");
   };
 
   return (
@@ -446,6 +542,13 @@ export default function RichTextEditor({ initialContent = "", onChange, editable
               title="Insert Entry Field"
             >
               + Entry Field
+            </button>
+            <button
+              onClick={() => setShowComponentModal(true)}
+              className="rounded border border-gray-300 bg-white px-2 py-1 text-sm text-gray-700 hover:bg-gray-50"
+              title="Insert Component"
+            >
+              + Component
             </button>
             <button
               onClick={() => setShowTimerModal(true)}
@@ -664,6 +767,75 @@ export default function RichTextEditor({ initialContent = "", onChange, editable
                 Cancel
               </button>
               <button onClick={insertTimerField} className="rounded bg-blue-600 px-4 py-2 text-white hover:bg-blue-700">
+                Insert
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showComponentModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="mx-4 w-full max-w-md rounded bg-white p-6 shadow-lg">
+            <h3 className="mb-4 text-lg font-semibold text-gray-900">Insert Component</h3>
+            <div className="space-y-4">
+              <div>
+                <label className="mb-1 block text-sm font-medium text-gray-700">Component Type</label>
+                <select
+                  value={componentType}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    setComponentType(value);
+                    const option = ENTRY_TYPE_OPTIONS.find((o) => o.label === value);
+                    if (option) setComponentUnit(option.defaultUnit);
+                  }}
+                  className="w-full rounded border border-gray-300 px-3 py-2 text-gray-900"
+                >
+                  {ENTRY_TYPE_OPTIONS.map((option) => (
+                    <option key={option.label} value={option.label}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium text-gray-700">Custom Label (optional)</label>
+                <input
+                  value={componentCustomLabel}
+                  onChange={(e) => setComponentCustomLabel(e.target.value)}
+                  placeholder="e.g., Template plasmid"
+                  className="w-full rounded border border-gray-300 px-3 py-2 text-gray-900"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium text-gray-700">Unit</label>
+                <select
+                  value={componentUnit}
+                  onChange={(e) => setComponentUnit(e.target.value)}
+                  disabled={componentType === "Undefined"}
+                  className="w-full rounded border border-gray-300 px-3 py-2 text-gray-900"
+                >
+                  <option value="">No unit</option>
+                  {UNIT_OPTIONS.map((unit) => (
+                    <option key={unit} value={unit}>
+                      {unit}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <p className="text-xs text-gray-500">
+                In runs, each component gets its own checkbox. The step checkbox auto-completes only when all
+                components in that step are checked.
+              </p>
+            </div>
+            <div className="mt-6 flex justify-end gap-2">
+              <button
+                onClick={() => setShowComponentModal(false)}
+                className="rounded border border-gray-300 px-4 py-2 text-gray-700 hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button onClick={insertComponentField} className="rounded bg-blue-600 px-4 py-2 text-white hover:bg-blue-700">
                 Insert
               </button>
             </div>

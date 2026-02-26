@@ -88,6 +88,8 @@ export async function POST(request: Request) {
         notes: "",
         interactionState: JSON.stringify({
           stepCompletion: {},
+          components: {},
+          componentAmounts: {},
           entryFields: {},
           timers: {},
         }),

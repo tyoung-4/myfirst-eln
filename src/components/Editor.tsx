@@ -47,13 +47,13 @@ export default function Editor({
 
   return (
     <div className="w-full max-w-4xl">
-      <div className="mb-4 rounded border bg-zinc-50 p-4">
-        <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-zinc-500">Entry Metadata</p>
+      <div className="mb-4 rounded border border-zinc-800 bg-zinc-900 p-4">
+        <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-zinc-400">Entry Metadata</p>
         <input
           value={title}
           onChange={(e) => setTitle(e.target.value)}
           placeholder="Entry name"
-          className="mb-3 w-full rounded border bg-white px-3 py-2 text-xl font-semibold"
+          className="mb-3 w-full rounded border border-zinc-700 bg-zinc-800 px-3 py-2 text-xl font-semibold text-zinc-100 placeholder:text-zinc-500"
         />
         <textarea
           value={description}
@@ -61,14 +61,14 @@ export default function Editor({
           placeholder="Short description (max 100 characters)"
           maxLength={100}
           rows={2}
-          className="w-full resize-none rounded border bg-white px-3 py-2 text-sm text-zinc-700"
+          className="w-full resize-none rounded border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-200 placeholder:text-zinc-500"
         />
         <div className="mt-3">
-          <label className="mb-1 block text-xs font-medium text-zinc-500">Technique</label>
+          <label className="mb-1 block text-xs font-medium text-zinc-400">Technique</label>
           <select
             value={technique}
             onChange={(e) => setTechnique(e.target.value)}
-            className="w-full rounded border bg-white px-3 py-2 text-sm text-zinc-800"
+            className="w-full rounded border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-100"
           >
             {TECHNIQUE_OPTIONS.map((option) => (
               <option key={option} value={option}>
@@ -77,11 +77,11 @@ export default function Editor({
             ))}
           </select>
         </div>
-        <div className="mt-3 rounded border bg-white px-3 py-2">
-          <p className="text-xs font-medium text-zinc-500">Author</p>
-          <p className="text-sm text-zinc-800">{initial.author?.name || currentAuthorName || "Default"}</p>
+        <div className="mt-3 rounded border bg-zinc-800 px-3 py-2">
+          <p className="text-xs font-medium text-zinc-400">Author</p>
+          <p className="text-sm text-zinc-100">{initial.author?.name || currentAuthorName || "Default"}</p>
         </div>
-        <p className="mt-1 text-right text-xs text-zinc-500">{description.length}/100</p>
+        <p className="mt-1 text-right text-xs text-zinc-400">{description.length}/100</p>
       </div>
 
       <div className="mb-4">
@@ -105,11 +105,11 @@ export default function Editor({
             })
           }
           disabled={saving}
-          className="rounded bg-blue-600 px-4 py-2 text-white disabled:opacity-60"
+          className="rounded bg-blue-600 px-4 py-2 text-white hover:bg-blue-500 disabled:opacity-60"
         >
           Save
         </button>
-        <button onClick={onCancel} className="rounded border px-4 py-2">
+        <button onClick={onCancel} className="rounded border border-zinc-700 bg-zinc-900 px-4 py-2 text-zinc-200 hover:bg-zinc-800">
           Cancel
         </button>
       </div>
