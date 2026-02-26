@@ -146,11 +146,26 @@ export async function DELETE(request: Request, context: RouteContext) {
       return NextResponse.json({ error: "Not allowed to delete this entry" }, { status: 403 });
     }
 
+    const runCount = await prisma.protocolRun.count({ where: { sourceEntryId: id } });
+    if (runCount > 0) {
+      return NextResponse.json(
+        { error: "Cannot delete this protocol because run records exist. Delete related runs first." },
+        { status: 409 }
+      );
+    }
+
     await prisma.entry.delete({ where: { id } });
     return new NextResponse(null, { status: 204 });
   } catch (error) {
     const isMissing = typeof error === "object" && error !== null && "code" in error && error.code === "P2025";
     if (isMissing) return new NextResponse(null, { status: 404 });
+    const isForeignKey = typeof error === "object" && error !== null && "code" in error && error.code === "P2003";
+    if (isForeignKey) {
+      return NextResponse.json(
+        { error: "Cannot delete this protocol because run records exist. Delete related runs first." },
+        { status: 409 }
+      );
+    }
     console.error(`DELETE /api/entries/${id} failed:`, error);
     const detail = process.env.NODE_ENV === "development" && error instanceof Error ? error.message : undefined;
     return NextResponse.json({ error: "Failed to delete entry", detail }, { status: 500 });

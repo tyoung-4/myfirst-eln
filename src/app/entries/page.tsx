@@ -153,11 +153,19 @@ export default function EntriesPage() {
     try {
       const res = await fetch(`/api/entries/${id}`, { method: "DELETE", headers: authHeaders });
       if (!res.ok) {
-        const text = await res.text().catch(() => "<no body>");
-        console.error("Failed to delete entry:", res.status, text);
+        let detail = "";
+        try {
+          const parsed = await res.json();
+          detail = parsed?.error || parsed?.detail || "";
+        } catch {
+          detail = await res.text().catch(() => "<no body>");
+        }
+        console.error("Failed to delete entry:", res.status, detail);
+        setSaveError(`Delete failed (${res.status})${detail ? `: ${detail}` : ""}`);
         return;
       }
       setEntries((s) => s.filter((e) => e.id !== id));
+      setSaveError(null);
       if (selected?.id === id) {
         setSelected(null);
         setEditorMode("create");
@@ -226,7 +234,7 @@ export default function EntriesPage() {
       }
 
       const run = (await res.json()) as { id: string };
-      router.push(`/runs?runId=${run.id}`);
+      router.push(`/runs?runId=${run.id}&sourceEntryId=${selected.id}`);
     } finally {
       setLoading(false);
     }

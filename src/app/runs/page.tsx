@@ -32,10 +32,12 @@ const ADMIN_USER: CurrentUser = {
 function RunsPageContent() {
   const searchParams = useSearchParams();
   const initialRunId = searchParams.get("runId");
+  const initialSourceEntryId = searchParams.get("sourceEntryId");
 
   const [currentUser, setCurrentUser] = useState<CurrentUser>(DEFAULT_USER);
   const [runs, setRuns] = useState<ProtocolRun[]>([]);
   const [selectedRun, setSelectedRun] = useState<ProtocolRun | null>(null);
+  const [activeSourceEntryId, setActiveSourceEntryId] = useState<string | null>(initialSourceEntryId);
   const [interactionState, setInteractionState] = useState<InteractionState | null>(null);
   const [notes, setNotes] = useState("");
   const [loading, setLoading] = useState(false);
@@ -80,6 +82,7 @@ function RunsPageContent() {
 
       const preferred = (initialRunId && data.find((run) => run.id === initialRunId)) || data[0];
       setSelectedRun(preferred);
+      setActiveSourceEntryId(preferred.sourceEntryId);
       try {
         setInteractionState(JSON.parse(preferred.interactionState || "{}"));
       } catch {
@@ -122,6 +125,7 @@ function RunsPageContent() {
 
       const run = (await res.json()) as ProtocolRun;
       setSelectedRun(run);
+      setActiveSourceEntryId(run.sourceEntryId);
       try {
         setInteractionState(JSON.parse(run.interactionState || "{}"));
       } catch {
@@ -187,6 +191,17 @@ function RunsPageContent() {
     });
   }
 
+  const filteredRuns = useMemo(() => {
+    if (!activeSourceEntryId) return runs;
+    return runs.filter((run) => run.sourceEntryId === activeSourceEntryId);
+  }, [runs, activeSourceEntryId]);
+
+  const activeProtocolTitle = useMemo(() => {
+    if (selectedRun) return selectedRun.sourceEntry?.title || selectedRun.sourceEntryId;
+    const first = filteredRuns[0];
+    return first ? first.sourceEntry?.title || first.sourceEntryId : "No protocol selected";
+  }, [selectedRun, filteredRuns]);
+
   return (
     <div className="flex min-h-screen flex-col gap-5 p-6">
       <div className="flex items-center justify-between rounded border border-zinc-200 bg-white px-4 py-2">
@@ -210,11 +225,12 @@ function RunsPageContent() {
         </div>
       </div>
 
-      <div className="flex gap-5">
-        <aside className="w-80 shrink-0 rounded border border-zinc-200 bg-white p-3">
-          <h2 className="mb-2 text-lg font-semibold">Runs</h2>
+      <div className="grid gap-5 lg:grid-cols-[280px_minmax(0,1fr)_320px]">
+        <aside className="rounded border border-zinc-200 bg-white p-3">
+          <h2 className="mb-1 text-lg font-semibold">Runs</h2>
+          <p className="mb-2 text-xs text-zinc-500">Protocol: {activeProtocolTitle}</p>
           <ul className="space-y-2">
-            {runs.map((run) => (
+            {filteredRuns.map((run) => (
               <li key={run.id}>
                 <button
                   onClick={() => handleSelectRun(run.id)}
@@ -225,11 +241,11 @@ function RunsPageContent() {
                 </button>
               </li>
             ))}
-            {runs.length === 0 && <li className="text-sm text-zinc-500">No runs yet.</li>}
+            {filteredRuns.length === 0 && <li className="text-sm text-zinc-500">No runs for this protocol yet.</li>}
           </ul>
         </aside>
 
-        <main className="flex-1 space-y-4">
+        <main className="space-y-4">
           {selectedRun ? (
             <>
               <div className="rounded border border-zinc-200 bg-white p-4">
@@ -253,89 +269,91 @@ function RunsPageContent() {
                   onChange={setInteractionState}
                 />
               </div>
-
-              <div className="rounded border border-zinc-200 bg-white p-4">
-                <h3 className="mb-2 text-sm font-semibold">Notes</h3>
-                <textarea
-                  value={notes}
-                  onChange={(e) => setNotes(e.target.value)}
-                  rows={5}
-                  placeholder="Run-specific notes"
-                  className="w-full rounded border border-zinc-300 px-3 py-2 text-sm"
-                />
-              </div>
-
-              <div className="rounded border border-zinc-200 bg-white p-4">
-                <h3 className="mb-2 text-sm font-semibold">Utility Timer</h3>
-                <p className="mb-3 text-xs text-zinc-500">Standalone timer for this run (outside protocol steps).</p>
-                <div className="mb-3 grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="mb-1 block text-xs text-zinc-600">Minutes</label>
-                    <input
-                      type="number"
-                      min="0"
-                      value={utilityMinutes}
-                      onChange={(e) => applyUtilityDuration(parseInt(e.target.value || "0", 10), utilitySeconds)}
-                      className="w-full rounded border border-zinc-300 px-2 py-1 text-sm"
-                    />
-                  </div>
-                  <div>
-                    <label className="mb-1 block text-xs text-zinc-600">Seconds</label>
-                    <input
-                      type="number"
-                      min="0"
-                      max="59"
-                      value={utilitySeconds}
-                      onChange={(e) => applyUtilityDuration(utilityMinutes, parseInt(e.target.value || "0", 10))}
-                      className="w-full rounded border border-zinc-300 px-2 py-1 text-sm"
-                    />
-                  </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="min-w-[70px] rounded border border-zinc-300 bg-zinc-50 px-2 py-1 text-center font-mono text-sm">
-                    {formatDuration(utilityTimer.remaining)}
-                  </span>
-                  <button
-                    onClick={() =>
-                      setUtilityTimer((prev) =>
-                        prev.locked ? prev : { ...prev, running: !prev.running }
-                      )
-                    }
-                    disabled={utilityTimer.locked}
-                    className="rounded border border-zinc-300 px-2 py-1 text-xs disabled:opacity-40"
-                  >
-                    {utilityTimer.running ? "Pause" : "Start"}
-                  </button>
-                  <button
-                    onClick={() =>
-                      setUtilityTimer((prev) =>
-                        prev.locked ? prev : { ...prev, running: false, remaining: prev.total }
-                      )
-                    }
-                    disabled={utilityTimer.locked}
-                    className="rounded border border-zinc-300 px-2 py-1 text-xs disabled:opacity-40"
-                  >
-                    Reset
-                  </button>
-                  <button
-                    onClick={() =>
-                      setUtilityTimer((prev) => ({
-                        ...prev,
-                        running: false,
-                        locked: !prev.locked,
-                      }))
-                    }
-                    className="rounded border border-zinc-300 px-2 py-1 text-xs"
-                  >
-                    {utilityTimer.locked ? "Unlock" : "Lock"}
-                  </button>
-                </div>
-              </div>
             </>
           ) : (
             <div className="rounded border border-zinc-200 bg-white p-4 text-sm text-zinc-600">Select a run to begin.</div>
           )}
         </main>
+
+        <aside className="space-y-4">
+          <div className="rounded border border-zinc-200 bg-white p-4">
+            <h3 className="mb-2 text-sm font-semibold">Notes</h3>
+            <textarea
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              rows={10}
+              placeholder="Run-specific notes"
+              className="w-full rounded border border-zinc-300 px-3 py-2 text-sm"
+            />
+          </div>
+
+          <div className="rounded border border-zinc-200 bg-white p-4">
+            <h3 className="mb-2 text-sm font-semibold">Utility Timer</h3>
+            <p className="mb-3 text-xs text-zinc-500">Standalone timer for this run (outside protocol steps).</p>
+            <div className="mb-3 grid grid-cols-2 gap-3">
+              <div>
+                <label className="mb-1 block text-xs text-zinc-600">Minutes</label>
+                <input
+                  type="number"
+                  min="0"
+                  value={utilityMinutes}
+                  onChange={(e) => applyUtilityDuration(parseInt(e.target.value || "0", 10), utilitySeconds)}
+                  className="w-full rounded border border-zinc-300 px-2 py-1 text-sm"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs text-zinc-600">Seconds</label>
+                <input
+                  type="number"
+                  min="0"
+                  max="59"
+                  value={utilitySeconds}
+                  onChange={(e) => applyUtilityDuration(utilityMinutes, parseInt(e.target.value || "0", 10))}
+                  className="w-full rounded border border-zinc-300 px-2 py-1 text-sm"
+                />
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="min-w-[70px] rounded border border-zinc-300 bg-zinc-50 px-2 py-1 text-center font-mono text-sm">
+                {formatDuration(utilityTimer.remaining)}
+              </span>
+              <button
+                onClick={() =>
+                  setUtilityTimer((prev) =>
+                    prev.locked ? prev : { ...prev, running: !prev.running }
+                  )
+                }
+                disabled={utilityTimer.locked}
+                className="rounded border border-zinc-300 px-2 py-1 text-xs disabled:opacity-40"
+              >
+                {utilityTimer.running ? "Pause" : "Start"}
+              </button>
+              <button
+                onClick={() =>
+                  setUtilityTimer((prev) =>
+                    prev.locked ? prev : { ...prev, running: false, remaining: prev.total }
+                  )
+                }
+                disabled={utilityTimer.locked}
+                className="rounded border border-zinc-300 px-2 py-1 text-xs disabled:opacity-40"
+              >
+                Reset
+              </button>
+              <button
+                onClick={() =>
+                  setUtilityTimer((prev) => ({
+                    ...prev,
+                    running: false,
+                    locked: !prev.locked,
+                  }))
+                }
+                className="rounded border border-zinc-300 px-2 py-1 text-xs"
+              >
+                {utilityTimer.locked ? "Unlock" : "Lock"}
+              </button>
+            </div>
+          </div>
+        </aside>
       </div>
     </div>
   );
