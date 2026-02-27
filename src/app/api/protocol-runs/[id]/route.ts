@@ -15,8 +15,8 @@ function getActorFromRequest(request?: Request): Actor {
   const headerName = request?.headers.get("x-user-name")?.trim();
   const headerRole = request?.headers.get("x-user-role")?.trim().toUpperCase();
 
-  const name = headerName || "Default";
-  const safeId = headerId || (name === "Default" ? "default-user" : `default-${name.toLowerCase().replace(/[^a-z0-9]+/g, "-") || "user"}`);
+  const name = headerName || "Finn";
+  const safeId = headerId || `user-${name.toLowerCase().replace(/[^a-z0-9]+/g, "-") || "member"}`;
   const role: "ADMIN" | "MEMBER" = headerRole === "ADMIN" ? "ADMIN" : "MEMBER";
 
   return {
@@ -62,7 +62,15 @@ export async function GET(request: Request, context: RouteContext) {
     const found = await prisma.protocolRun.findUnique({
       where: { id },
       include: {
-        sourceEntry: { select: { id: true, title: true, description: true } },
+        sourceEntry: {
+          select: {
+            id: true,
+            title: true,
+            description: true,
+            technique: true,
+            author: { select: { id: true, name: true, role: true } },
+          },
+        },
         runner: { select: { id: true, name: true, role: true } },
       },
     });
@@ -85,22 +93,35 @@ export async function PUT(request: Request, context: RouteContext) {
     const actor = getActorFromRequest(request);
     await ensureActor(actor);
 
-    const existing = await prisma.protocolRun.findUnique({ where: { id }, select: { runnerId: true } });
+    const existing = await prisma.protocolRun.findUnique({ where: { id }, select: { runnerId: true, status: true } });
     if (!existing) return new NextResponse(null, { status: 404 });
     if (!canAccessRun(actor, existing.runnerId)) {
       return NextResponse.json({ error: "Not allowed to update this run" }, { status: 403 });
     }
+    if (existing.status === "COMPLETED") {
+      return NextResponse.json({ error: "Run already ended and is locked." }, { status: 409 });
+    }
 
     const payload = await request.json().catch(() => ({}));
+    const nextStatus = typeof payload.status === "string" ? payload.status : undefined;
     const updated = await prisma.protocolRun.update({
       where: { id },
       data: {
         interactionState: typeof payload.interactionState === "string" ? payload.interactionState : undefined,
-        status: typeof payload.status === "string" ? payload.status : undefined,
+        status: nextStatus,
+        locked: nextStatus === "COMPLETED" ? true : undefined,
         notes: typeof payload.notes === "string" ? payload.notes : undefined,
       },
       include: {
-        sourceEntry: { select: { id: true, title: true, description: true } },
+        sourceEntry: {
+          select: {
+            id: true,
+            title: true,
+            description: true,
+            technique: true,
+            author: { select: { id: true, name: true, role: true } },
+          },
+        },
         runner: { select: { id: true, name: true, role: true } },
       },
     });

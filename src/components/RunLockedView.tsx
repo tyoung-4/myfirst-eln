@@ -7,6 +7,7 @@ type TimerState = {
   remaining: number;
   running: boolean;
   locked: boolean;
+  alertUntil?: number;
 };
 
 type InteractionState = {
@@ -48,11 +49,13 @@ function parseState(raw: string): InteractionState {
 }
 
 function formatDuration(totalSeconds: number) {
-  const minutes = Math.floor(totalSeconds / 60)
+  const sign = totalSeconds < 0 ? "-" : "";
+  const absolute = Math.abs(totalSeconds);
+  const minutes = Math.floor(absolute / 60)
     .toString()
     .padStart(2, "0");
-  const seconds = (totalSeconds % 60).toString().padStart(2, "0");
-  return `${minutes}:${seconds}`;
+  const seconds = (absolute % 60).toString().padStart(2, "0");
+  return `${sign}${minutes}:${seconds}`;
 }
 
 function inputWidth(value: string) {
@@ -70,6 +73,7 @@ export default function RunLockedView({ runBody, initialInteractionState, onChan
     Record<
       string,
       {
+        container: HTMLElement;
         value: HTMLSpanElement;
         startPause: HTMLButtonElement;
         reset: HTMLButtonElement;
@@ -133,6 +137,13 @@ export default function RunLockedView({ runBody, initialInteractionState, onChan
       };
 
       controls.value.textContent = formatDuration(timer.remaining);
+      if (timer.remaining < 0) {
+        controls.container.className =
+          "entry-timer inline-flex items-center gap-2 rounded border border-red-300 bg-red-50 px-2 py-1 text-xs text-red-900";
+      } else {
+        controls.container.className =
+          "entry-timer inline-flex items-center gap-2 rounded border border-amber-300 bg-amber-50 px-2 py-1 text-xs text-amber-900";
+      }
       controls.startPause.textContent = timer.running ? "Pause" : "Start";
       controls.startPause.disabled = readOnly || timer.locked;
       controls.reset.disabled = readOnly || timer.locked;
@@ -215,6 +226,7 @@ export default function RunLockedView({ runBody, initialInteractionState, onChan
                   ...existing,
                   running: false,
                   locked: true,
+                  alertUntil: undefined,
                 };
               }
             }
@@ -463,6 +475,7 @@ export default function RunLockedView({ runBody, initialInteractionState, onChan
                 ...prev.timers,
                 [timerKey]: {
                   ...existing,
+                  alertUntil: undefined,
                   running: !existing.running,
                 },
               },
@@ -493,6 +506,7 @@ export default function RunLockedView({ runBody, initialInteractionState, onChan
                   ...existing,
                   remaining: existing.total,
                   running: false,
+                  alertUntil: undefined,
                 },
               },
             };
@@ -521,6 +535,7 @@ export default function RunLockedView({ runBody, initialInteractionState, onChan
                   ...existing,
                   running: false,
                   locked: !existing.locked,
+                  alertUntil: existing.locked ? existing.alertUntil : undefined,
                 },
               },
             };
@@ -529,6 +544,7 @@ export default function RunLockedView({ runBody, initialInteractionState, onChan
       }
 
       timerControlsRef.current[timerKey] = {
+        container: node,
         value: valueSpan,
         startPause,
         reset,
@@ -557,11 +573,13 @@ export default function RunLockedView({ runBody, initialInteractionState, onChan
 
         for (const [key, timer] of Object.entries(prev.timers)) {
           if (!timer.running || timer.locked) continue;
-          const remaining = Math.max(0, timer.remaining - 1);
+          const remaining = timer.remaining - 1;
+          const crossedToNegative = timer.remaining >= 0 && remaining < 0;
           nextTimers[key] = {
             ...timer,
             remaining,
-            running: remaining > 0,
+            running: true,
+            alertUntil: crossedToNegative ? Date.now() + 15000 : timer.alertUntil,
           };
           changed = true;
         }
@@ -572,6 +590,36 @@ export default function RunLockedView({ runBody, initialInteractionState, onChan
 
     return () => window.clearInterval(id);
   }, [interaction.timers]);
+
+  useEffect(() => {
+    if (readOnly) return;
+
+    const beep = () => {
+      const AudioCtor = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+      if (!AudioCtor) return;
+      const context = new AudioCtor();
+      const oscillator = context.createOscillator();
+      const gain = context.createGain();
+      oscillator.type = "sine";
+      oscillator.frequency.setValueAtTime(880, context.currentTime);
+      gain.gain.setValueAtTime(0.0001, context.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.08, context.currentTime + 0.01);
+      gain.gain.exponentialRampToValueAtTime(0.0001, context.currentTime + 0.18);
+      oscillator.connect(gain);
+      gain.connect(context.destination);
+      oscillator.start();
+      oscillator.stop(context.currentTime + 0.2);
+      window.setTimeout(() => context.close().catch(() => undefined), 250);
+    };
+
+    const id = window.setInterval(() => {
+      const now = Date.now();
+      const activeAlert = Object.values(interaction.timers).some((timer) => Boolean(timer.alertUntil && timer.alertUntil > now));
+      if (activeAlert) beep();
+    }, 1000);
+
+    return () => window.clearInterval(id);
+  }, [interaction.timers, readOnly]);
 
   const contentClass = useMemo(
     () => "run-protocol-content prose max-w-none rounded border border-zinc-200 bg-white p-4 text-zinc-900",

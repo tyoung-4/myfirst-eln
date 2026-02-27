@@ -14,6 +14,12 @@ export type ProtocolRun = {
     id: string;
     title: string;
     description: string;
+    technique?: string;
+    author?: {
+      id: string;
+      name: string | null;
+      role: string;
+    } | null;
   };
   runner?: {
     id: string;

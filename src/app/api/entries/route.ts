@@ -25,10 +25,8 @@ function getActorFromRequest(request?: Request): Actor {
   const headerName = request?.headers.get("x-user-name")?.trim();
   const headerRole = request?.headers.get("x-user-role")?.trim().toUpperCase();
 
-  const name = headerName || "Default";
-  const safeId =
-    headerId ||
-    (name === "Default" ? "default-user" : `default-${name.toLowerCase().replace(/[^a-z0-9]+/g, "-") || "user"}`);
+  const name = headerName || "Finn";
+  const safeId = headerId || `user-${name.toLowerCase().replace(/[^a-z0-9]+/g, "-") || "member"}`;
   const role: "ADMIN" | "MEMBER" = headerRole === "ADMIN" ? "ADMIN" : "MEMBER";
 
   return {
@@ -57,16 +55,16 @@ async function ensureActor(actor: Actor) {
 
 async function ensureTemplateEntry() {
   await prisma.user.upsert({
-    where: { id: "default-user" },
+    where: { id: "admin-user" },
     create: {
-      id: "default-user",
-      name: "Default",
-      email: "default-user@local.eln",
-      role: "MEMBER",
+      id: "admin-user",
+      name: "Admin",
+      email: "admin-user@local.eln",
+      role: "ADMIN",
     },
     update: {
-      name: "Default",
-      role: "MEMBER",
+      name: "Admin",
+      role: "ADMIN",
     },
   });
 
@@ -78,7 +76,7 @@ async function ensureTemplateEntry() {
       description: Q5_TEMPLATE_ENTRY.description,
       technique: Q5_TEMPLATE_ENTRY.technique,
       body: Q5_TEMPLATE_ENTRY.body,
-      authorId: "default-user",
+      authorId: "admin-user",
       version: 1,
     },
     update: {
@@ -86,7 +84,7 @@ async function ensureTemplateEntry() {
       description: Q5_TEMPLATE_ENTRY.description,
       technique: Q5_TEMPLATE_ENTRY.technique,
       body: Q5_TEMPLATE_ENTRY.body,
-      authorId: "default-user",
+      authorId: "admin-user",
     },
   });
 }

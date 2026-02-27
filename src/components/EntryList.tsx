@@ -22,7 +22,7 @@ export default function EntryList({ entries, canEdit, canDelete, onSelect, onEdi
       {entries.map((e) => {
         const fallback = stripHtml(e.body ?? "");
         const summary = (e.description || fallback).slice(0, 100);
-        const authorName = e.author?.name || "Default";
+        const authorName = e.author?.name || "Unknown";
         const technique = e.technique || "General";
         const editable = canEdit(e);
         const deletable = canDelete(e);

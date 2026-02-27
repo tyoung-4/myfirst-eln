@@ -13,8 +13,8 @@ function getActorFromRequest(request?: Request): Actor {
   const headerName = request?.headers.get("x-user-name")?.trim();
   const headerRole = request?.headers.get("x-user-role")?.trim().toUpperCase();
 
-  const name = headerName || "Default";
-  const safeId = headerId || (name === "Default" ? "default-user" : `default-${name.toLowerCase().replace(/[^a-z0-9]+/g, "-") || "user"}`);
+  const name = headerName || "Finn";
+  const safeId = headerId || `user-${name.toLowerCase().replace(/[^a-z0-9]+/g, "-") || "member"}`;
   const role: "ADMIN" | "MEMBER" = headerRole === "ADMIN" ? "ADMIN" : "MEMBER";
 
   return {
@@ -50,7 +50,15 @@ export async function GET(request: Request) {
       where: actor.role === "ADMIN" ? undefined : { runnerId: actor.id },
       orderBy: { createdAt: "desc" },
       include: {
-        sourceEntry: { select: { id: true, title: true, description: true } },
+        sourceEntry: {
+          select: {
+            id: true,
+            title: true,
+            description: true,
+            technique: true,
+            author: { select: { id: true, name: true, role: true } },
+          },
+        },
         runner: { select: { id: true, name: true, role: true } },
       },
     });
@@ -96,7 +104,15 @@ export async function POST(request: Request) {
         runnerId: actor.id,
       },
       include: {
-        sourceEntry: { select: { id: true, title: true, description: true } },
+        sourceEntry: {
+          select: {
+            id: true,
+            title: true,
+            description: true,
+            technique: true,
+            author: { select: { id: true, name: true, role: true } },
+          },
+        },
         runner: { select: { id: true, name: true, role: true } },
       },
     });

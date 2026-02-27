@@ -13,9 +13,14 @@ type CurrentUser = {
   role: "ADMIN" | "MEMBER";
 };
 
-const DEFAULT_USER: CurrentUser = {
-  id: "default-user",
-  name: "Default",
+const FINN_USER: CurrentUser = {
+  id: "finn-user",
+  name: "Finn",
+  role: "MEMBER",
+};
+const JAKE_USER: CurrentUser = {
+  id: "jake-user",
+  name: "Jake",
   role: "MEMBER",
 };
 const ADMIN_USER: CurrentUser = {
@@ -31,7 +36,7 @@ export default function EntriesPage() {
   const [editorMode, setEditorMode] = useState<"create" | "edit">("create");
   const [loading, setLoading] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
-  const [currentUser, setCurrentUser] = useState<CurrentUser>(DEFAULT_USER);
+  const [currentUser, setCurrentUser] = useState<CurrentUser>(FINN_USER);
   const [isDirty, setIsDirty] = useState(false);
   const [keyword, setKeyword] = useState("");
   const [techniqueFilter, setTechniqueFilter] = useState("ALL");
@@ -57,18 +62,12 @@ export default function EntriesPage() {
   const canEdit = (entry: Entry) => {
     if (entry.id === Q5_TEMPLATE_ENTRY_ID) return false;
     if (currentUser.role === "ADMIN") return true;
-    if (currentUser.name === "Default" && (entry.authorId === "default-user" || entry.authorId === "default-default")) {
-      return true;
-    }
     return Boolean(entry.authorId && entry.authorId === currentUser.id);
   };
 
   const canDelete = (entry: Entry) => {
     if (entry.id === Q5_TEMPLATE_ENTRY_ID) return false;
     if (currentUser.role === "ADMIN") return true;
-    if (currentUser.name === "Default" && (entry.authorId === "default-user" || entry.authorId === "default-default")) {
-      return true;
-    }
     return Boolean(entry.authorId && entry.authorId === currentUser.id);
   };
 
@@ -168,8 +167,13 @@ export default function EntriesPage() {
         } catch {
           detail = await res.text().catch(() => "<no body>");
         }
-        console.error("Failed to delete entry:", res.status, detail);
-        setSaveError(`Delete failed (${res.status})${detail ? `: ${detail}` : ""}`);
+        if (res.status === 409) {
+          console.warn("Delete blocked by related runs:", detail);
+          setSaveError(detail || "Cannot delete this protocol because related runs exist.");
+        } else {
+          console.error("Failed to delete entry:", res.status, detail);
+          setSaveError(`Delete failed (${res.status})${detail ? `: ${detail}` : ""}`);
+        }
         return;
       }
       setEntries((s) => s.filter((e) => e.id !== id));
@@ -249,14 +253,14 @@ export default function EntriesPage() {
   }
 
   const authorOptions = useMemo(() => {
-    const values = Array.from(new Set(entries.map((entry) => entry.author?.name || "Default")));
+    const values = Array.from(new Set(entries.map((entry) => entry.author?.name || "Unknown")));
     return values.sort((a, b) => a.localeCompare(b));
   }, [entries]);
 
   const filteredEntries = useMemo(() => {
     const query = keyword.trim().toLowerCase();
     const filtered = entries.filter((entry) => {
-      const authorName = entry.author?.name || "Default";
+      const authorName = entry.author?.name || "Unknown";
       const technique = entry.technique || "General";
       const matchesTechnique = techniqueFilter === "ALL" || technique === techniqueFilter;
       const matchesAuthor = authorFilter === "ALL" || authorName === authorFilter;
@@ -272,7 +276,7 @@ export default function EntriesPage() {
       if (b.id === Q5_TEMPLATE_ENTRY_ID) return 1;
       if (sortBy === "oldest") return a.createdAt.localeCompare(b.createdAt);
       if (sortBy === "technique") return (a.technique || "General").localeCompare(b.technique || "General");
-      if (sortBy === "author") return (a.author?.name || "Default").localeCompare(b.author?.name || "Default");
+      if (sortBy === "author") return (a.author?.name || "Unknown").localeCompare(b.author?.name || "Unknown");
       return b.createdAt.localeCompare(a.createdAt);
     });
 
@@ -297,17 +301,18 @@ export default function EntriesPage() {
             User: <span className="font-semibold text-zinc-100">{currentUser.name}</span>
           </span>
           <select
-            value={currentUser.role}
+            value={currentUser.id}
             onChange={(e) => {
-              const next = e.target.value === "ADMIN" ? ADMIN_USER : DEFAULT_USER;
+              const next = e.target.value === "admin-user" ? ADMIN_USER : e.target.value === "jake-user" ? JAKE_USER : FINN_USER;
               setCurrentUser(next);
               setSelected(null);
               setEditorMode("create");
             }}
             className="rounded border border-zinc-700 bg-zinc-800 px-2 py-1 text-xs text-zinc-200"
           >
-            <option value="MEMBER">Login as Default</option>
-            <option value="ADMIN">Login as Admin</option>
+            <option value="finn-user">Login as Finn</option>
+            <option value="jake-user">Login as Jake</option>
+            <option value="admin-user">Login as Admin</option>
           </select>
         </div>
       </div>

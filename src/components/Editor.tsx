@@ -14,7 +14,7 @@ type Props = {
 
 export default function Editor({
   initial = {},
-  currentAuthorName = "Default",
+  currentAuthorName = "Finn",
   onSave,
   onDirtyChange,
   onCancel,
@@ -79,7 +79,7 @@ export default function Editor({
         </div>
         <div className="mt-3 rounded border bg-zinc-800 px-3 py-2">
           <p className="text-xs font-medium text-zinc-400">Author</p>
-          <p className="text-sm text-zinc-100">{initial.author?.name || currentAuthorName || "Default"}</p>
+          <p className="text-sm text-zinc-100">{initial.author?.name || currentAuthorName || "Unknown"}</p>
         </div>
         <p className="mt-1 text-right text-xs text-zinc-400">{description.length}/100</p>
       </div>

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import type { ProtocolRun } from "@/models/protocolRun";
 import RunLockedView from "@/components/RunLockedView";
@@ -20,9 +20,39 @@ type InteractionState = {
   timers: Record<string, { total: number; remaining: number; running: boolean; locked: boolean }>;
 };
 
-const DEFAULT_USER: CurrentUser = {
-  id: "default-user",
-  name: "Default",
+type UtilityTimerState = {
+  total: number;
+  remaining: number;
+  running: boolean;
+  locked: boolean;
+};
+
+type PersistedRunState = InteractionState & {
+  __ui?: {
+    utilityTimer?: UtilityTimerState;
+    utilityMinutes?: number;
+    utilitySeconds?: number;
+  };
+};
+
+type ViewMode = "active" | "history";
+type RunSortBy = "newest" | "oldest" | "technique" | "author";
+
+type CompletionCheck = {
+  missingSteps: string[];
+  missingComponents: string[];
+  missingFields: string[];
+};
+
+const FINN_USER: CurrentUser = {
+  id: "finn-user",
+  name: "Finn",
+  role: "MEMBER",
+};
+
+const JAKE_USER: CurrentUser = {
+  id: "jake-user",
+  name: "Jake",
   role: "MEMBER",
 };
 
@@ -32,53 +62,177 @@ const ADMIN_USER: CurrentUser = {
   role: "ADMIN",
 };
 
-type ViewMode = "active" | "history";
-type SortBy = "newest" | "oldest" | "title" | "protocol" | "status";
+const EMPTY_INTERACTION: InteractionState = {
+  stepCompletion: {},
+  components: {},
+  componentAmounts: {},
+  entryFields: {},
+  timers: {},
+};
 
-function parseInteractionState(raw: string): InteractionState {
+const DEFAULT_UTILITY: UtilityTimerState = {
+  total: 300,
+  remaining: 300,
+  running: false,
+  locked: false,
+};
+
+function parsePersistedState(raw: string): { interaction: InteractionState; utilityTimer: UtilityTimerState; utilityMinutes: number; utilitySeconds: number } {
   try {
-    const parsed = JSON.parse(raw || "{}");
+    const parsed = JSON.parse(raw || "{}") as PersistedRunState;
+    const utilityTimer = parsed.__ui?.utilityTimer ?? DEFAULT_UTILITY;
+    const utilityMinutes = parsed.__ui?.utilityMinutes ?? 5;
+    const utilitySeconds = parsed.__ui?.utilitySeconds ?? 0;
+
     return {
-      stepCompletion: parsed.stepCompletion ?? {},
-      components: parsed.components ?? {},
-      componentAmounts: parsed.componentAmounts ?? {},
-      entryFields: parsed.entryFields ?? {},
-      timers: parsed.timers ?? {},
+      interaction: {
+        stepCompletion: parsed.stepCompletion ?? {},
+        components: parsed.components ?? {},
+        componentAmounts: parsed.componentAmounts ?? {},
+        entryFields: parsed.entryFields ?? {},
+        timers: parsed.timers ?? {},
+      },
+      utilityTimer,
+      utilityMinutes,
+      utilitySeconds,
     };
   } catch {
-    return { stepCompletion: {}, components: {}, componentAmounts: {}, entryFields: {}, timers: {} };
+    return {
+      interaction: EMPTY_INTERACTION,
+      utilityTimer: DEFAULT_UTILITY,
+      utilityMinutes: 5,
+      utilitySeconds: 0,
+    };
   }
+}
+
+function serializePersistedState(
+  interaction: InteractionState,
+  utilityTimer: UtilityTimerState,
+  utilityMinutes: number,
+  utilitySeconds: number
+): string {
+  const payload: PersistedRunState = {
+    ...interaction,
+    __ui: {
+      utilityTimer,
+      utilityMinutes,
+      utilitySeconds,
+    },
+  };
+
+  return JSON.stringify(payload);
+}
+
+function toAutoSaveSignature(interaction: InteractionState): string {
+  const timers = Object.fromEntries(
+    Object.entries(interaction.timers).map(([key, value]) => [
+      key,
+      {
+        total: value.total,
+        running: value.running,
+        locked: value.locked,
+      },
+    ])
+  );
+
+  return JSON.stringify({
+    stepCompletion: interaction.stepCompletion,
+    components: interaction.components,
+    componentAmounts: interaction.componentAmounts,
+    entryFields: interaction.entryFields,
+    timers,
+  });
+}
+
+function formatDuration(totalSeconds: number) {
+  const minutes = Math.floor(totalSeconds / 60)
+    .toString()
+    .padStart(2, "0");
+  const seconds = (totalSeconds % 60).toString().padStart(2, "0");
+  return `${minutes}:${seconds}`;
+}
+
+function parseRunCompletion(runBody: string, interaction: InteractionState): CompletionCheck {
+  if (typeof window === "undefined") {
+    return { missingSteps: [], missingComponents: [], missingFields: [] };
+  }
+
+  const doc = new DOMParser().parseFromString(runBody || "", "text/html");
+
+  const stepNodes = Array.from(doc.querySelectorAll("li[data-type='taskItem']"));
+  const componentNodes = Array.from(doc.querySelectorAll("span[data-entry-node='component']"));
+  const fieldNodes = Array.from(doc.querySelectorAll("span[data-entry-node='measurement']"));
+
+  const missingSteps: string[] = [];
+  const missingComponents: string[] = [];
+  const missingFields: string[] = [];
+
+  for (let i = 0; i < stepNodes.length; i += 1) {
+    if (interaction.stepCompletion[`step-${i}`]) continue;
+    const rawText = (stepNodes[i].textContent || "").replace(/\s+/g, " ").trim();
+    const preview = (rawText.slice(0, 10) || "(blank)").trim();
+    missingSteps.push(`Step ${i + 1}: ${preview}...`);
+  }
+
+  for (let i = 0; i < componentNodes.length; i += 1) {
+    const componentKey = `component-${i}`;
+    const checked = Boolean(interaction.components[componentKey]);
+    const amount = (interaction.componentAmounts[componentKey] ?? "").trim();
+    if (checked && amount.length > 0) continue;
+    const label = (componentNodes[i].getAttribute("label") || `Component ${i + 1}`).trim();
+    missingComponents.push(label);
+  }
+
+  for (let i = 0; i < fieldNodes.length; i += 1) {
+    const fieldValue = (interaction.entryFields[`field-${i}`] ?? "").trim();
+    if (fieldValue) continue;
+    const label = (fieldNodes[i].getAttribute("label") || `Entry Field ${i + 1}`).trim();
+    missingFields.push(label);
+  }
+
+  return {
+    missingSteps,
+    missingComponents,
+    missingFields,
+  };
 }
 
 function RunsPageContent() {
   const searchParams = useSearchParams();
   const initialRunId = searchParams.get("runId");
 
-  const [currentUser, setCurrentUser] = useState<CurrentUser>(DEFAULT_USER);
+  const [currentUser, setCurrentUser] = useState<CurrentUser>(FINN_USER);
   const [runs, setRuns] = useState<ProtocolRun[]>([]);
   const [selectedRunId, setSelectedRunId] = useState<string | null>(initialRunId);
   const [viewMode, setViewMode] = useState<ViewMode>(initialRunId ? "active" : "history");
   const [loading, setLoading] = useState(false);
+  const [manualSaveLoading, setManualSaveLoading] = useState(false);
+  const [autoSaveState, setAutoSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [saveError, setSaveError] = useState<string | null>(null);
 
-  const [interactionState, setInteractionState] = useState<InteractionState>({
-    stepCompletion: {},
-    components: {},
-    componentAmounts: {},
-    entryFields: {},
-    timers: {},
-  });
+  const [interactionState, setInteractionState] = useState<InteractionState>(EMPTY_INTERACTION);
   const [notes, setNotes] = useState("");
   const [utilityMinutes, setUtilityMinutes] = useState(5);
   const [utilitySeconds, setUtilitySeconds] = useState(0);
-  const [utilityTimer, setUtilityTimer] = useState({
-    total: 300,
-    remaining: 300,
-    running: false,
-    locked: false,
+  const [utilityTimer, setUtilityTimer] = useState<UtilityTimerState>(DEFAULT_UTILITY);
+  const [savedUtilitySnapshot, setSavedUtilitySnapshot] = useState<{
+    utilityTimer: UtilityTimerState;
+    utilityMinutes: number;
+    utilitySeconds: number;
+  }>({
+    utilityTimer: DEFAULT_UTILITY,
+    utilityMinutes: 5,
+    utilitySeconds: 0,
   });
 
-  const [historySortBy, setHistorySortBy] = useState<SortBy>("newest");
-  const [historyQuery, setHistoryQuery] = useState("");
+  const [runQuery, setRunQuery] = useState("");
+  const [runTechniqueFilter, setRunTechniqueFilter] = useState("ALL");
+  const [runAuthorFilter, setRunAuthorFilter] = useState("ALL");
+  const [runSortBy, setRunSortBy] = useState<RunSortBy>("newest");
+
+  const lastAutoSavedSignatureRef = useRef<string>("");
+  const lastLoadedRunIdRef = useRef<string | null>(null);
 
   const authHeaders = useMemo(
     () => ({
@@ -89,43 +243,68 @@ function RunsPageContent() {
     [currentUser]
   );
 
-  const loadRuns = useCallback(async () => {
-    setLoading(true);
-    try {
-      const res = await fetch("/api/protocol-runs", { headers: authHeaders });
-      if (!res.ok) {
-        const text = await res.text().catch(() => "<no body>");
-        console.error("Failed to load protocol runs:", res.status, text);
-        setRuns([]);
-        return;
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadRuns() {
+      setLoading(true);
+      try {
+        const res = await fetch("/api/protocol-runs", { headers: authHeaders });
+        if (!res.ok) {
+          const text = await res.text().catch(() => "<no body>");
+          console.error("Failed to load protocol runs:", res.status, text);
+          if (!cancelled) setRuns([]);
+          return;
+        }
+
+        const data = (await res.json()) as ProtocolRun[];
+        if (cancelled) return;
+
+        setRuns(data);
+
+        if (data.length === 0) {
+          setSelectedRunId(null);
+          setInteractionState(EMPTY_INTERACTION);
+          setNotes("");
+          return;
+        }
+
+        setSelectedRunId((prev) => {
+          if (prev && data.some((run) => run.id === prev)) return prev;
+          if (initialRunId && data.some((run) => run.id === initialRunId)) return initialRunId;
+          return data[0].id;
+        });
+      } finally {
+        if (!cancelled) setLoading(false);
       }
-
-      const data = (await res.json()) as ProtocolRun[];
-      setRuns(data);
-
-      if (data.length === 0) {
-        setSelectedRunId(null);
-        setInteractionState({ stepCompletion: {}, components: {}, componentAmounts: {}, entryFields: {}, timers: {} });
-        setNotes("");
-        return;
-      }
-
-      const preferred =
-        (initialRunId && data.find((run) => run.id === initialRunId)) ||
-        (selectedRunId && data.find((run) => run.id === selectedRunId)) ||
-        data[0];
-
-      setSelectedRunId(preferred.id);
-      setInteractionState(parseInteractionState(preferred.interactionState));
-      setNotes(preferred.notes || "");
-    } finally {
-      setLoading(false);
     }
-  }, [authHeaders, initialRunId, selectedRunId]);
+
+    loadRuns();
+    return () => {
+      cancelled = true;
+    };
+  }, [authHeaders, initialRunId]);
+
+  const selectedRun = useMemo(() => runs.find((run) => run.id === selectedRunId) || null, [runs, selectedRunId]);
 
   useEffect(() => {
-    loadRuns();
-  }, [loadRuns]);
+    if (!selectedRun) return;
+    if (lastLoadedRunIdRef.current === selectedRun.id) return;
+
+    const parsed = parsePersistedState(selectedRun.interactionState || "{}");
+    setInteractionState(parsed.interaction);
+    setNotes(selectedRun.notes || "");
+    setUtilityMinutes(parsed.utilityMinutes);
+    setUtilitySeconds(parsed.utilitySeconds);
+    setUtilityTimer(parsed.utilityTimer);
+    setSavedUtilitySnapshot({
+      utilityTimer: parsed.utilityTimer,
+      utilityMinutes: parsed.utilityMinutes,
+      utilitySeconds: parsed.utilitySeconds,
+    });
+    lastAutoSavedSignatureRef.current = toAutoSaveSignature(parsed.interaction);
+    lastLoadedRunIdRef.current = selectedRun.id;
+  }, [selectedRun]);
 
   useEffect(() => {
     if (!utilityTimer.running || utilityTimer.locked) return;
@@ -142,38 +321,52 @@ function RunsPageContent() {
     return () => window.clearInterval(id);
   }, [utilityTimer.running, utilityTimer.locked]);
 
-  const selectedRun = useMemo(() => runs.find((run) => run.id === selectedRunId) || null, [runs, selectedRunId]);
+  const filteredAndSortedRuns = useMemo(() => {
+    const query = runQuery.trim().toLowerCase();
 
-  const activeRuns = useMemo(() => runs.filter((run) => run.status === "IN_PROGRESS"), [runs]);
+    const filtered = runs.filter((run) => {
+      const technique = run.sourceEntry?.technique || "General";
+      const protocolAuthor = run.sourceEntry?.author?.name || "Unknown";
+      const haystack = `${run.title} ${run.sourceEntry?.title || ""} ${run.status} ${run.runner?.name || ""} ${technique} ${protocolAuthor}`.toLowerCase();
+      const matchesQuery = !query || haystack.includes(query);
+      const matchesTechnique = runTechniqueFilter === "ALL" || technique === runTechniqueFilter;
+      const matchesAuthor = runAuthorFilter === "ALL" || protocolAuthor === runAuthorFilter;
+      return matchesQuery && matchesTechnique && matchesAuthor;
+    });
+
+    filtered.sort((a, b) => {
+      if (runSortBy === "oldest") return a.createdAt.localeCompare(b.createdAt);
+      if (runSortBy === "technique") return (a.sourceEntry?.technique || "General").localeCompare(b.sourceEntry?.technique || "General");
+      if (runSortBy === "author") {
+        return (a.sourceEntry?.author?.name || "Unknown").localeCompare(b.sourceEntry?.author?.name || "Unknown");
+      }
+      return b.createdAt.localeCompare(a.createdAt);
+    });
+
+    return filtered;
+  }, [runs, runQuery, runTechniqueFilter, runAuthorFilter, runSortBy]);
+
+  const activeRuns = useMemo(
+    () => filteredAndSortedRuns.filter((run) => run.status === "IN_PROGRESS"),
+    [filteredAndSortedRuns]
+  );
+
+  const historyRuns = useMemo(() => filteredAndSortedRuns, [filteredAndSortedRuns]);
+
+  const techniqueOptions = useMemo(() => {
+    return Array.from(new Set(runs.map((run) => run.sourceEntry?.technique || "General"))).sort((a, b) => a.localeCompare(b));
+  }, [runs]);
+
+  const authorOptions = useMemo(() => {
+    return Array.from(new Set(runs.map((run) => run.sourceEntry?.author?.name || "Unknown"))).sort((a, b) => a.localeCompare(b));
+  }, [runs]);
 
   useEffect(() => {
     if (viewMode !== "active") return;
     if (activeRuns.length === 0) return;
     if (selectedRun && selectedRun.status === "IN_PROGRESS") return;
-    const first = activeRuns[0];
-    setSelectedRunId(first.id);
-    setInteractionState(parseInteractionState(first.interactionState));
-    setNotes(first.notes || "");
+    setSelectedRunId(activeRuns[0].id);
   }, [viewMode, activeRuns, selectedRun]);
-
-  const historyRuns = useMemo(() => {
-    const query = historyQuery.trim().toLowerCase();
-    const filtered = runs.filter((run) => {
-      if (!query) return true;
-      const haystack = `${run.title} ${run.sourceEntry?.title || ""} ${run.status} ${run.runner?.name || ""}`.toLowerCase();
-      return haystack.includes(query);
-    });
-
-    filtered.sort((a, b) => {
-      if (historySortBy === "oldest") return a.createdAt.localeCompare(b.createdAt);
-      if (historySortBy === "title") return a.title.localeCompare(b.title);
-      if (historySortBy === "protocol") return (a.sourceEntry?.title || "").localeCompare(b.sourceEntry?.title || "");
-      if (historySortBy === "status") return a.status.localeCompare(b.status);
-      return b.createdAt.localeCompare(a.createdAt);
-    });
-
-    return filtered;
-  }, [runs, historyQuery, historySortBy]);
 
   async function handleSelectRun(id: string) {
     setLoading(true);
@@ -188,51 +381,138 @@ function RunsPageContent() {
       const run = (await res.json()) as ProtocolRun;
       setRuns((prev) => prev.map((item) => (item.id === run.id ? run : item)));
       setSelectedRunId(run.id);
-      setInteractionState(parseInteractionState(run.interactionState));
-      setNotes(run.notes || "");
+      setSaveError(null);
     } finally {
       setLoading(false);
     }
   }
 
-  async function handleSaveRun() {
+  async function updateRun(id: string, payload: Partial<Pick<ProtocolRun, "status" | "notes" | "interactionState">>) {
+    const res = await fetch(`/api/protocol-runs/${id}`, {
+      method: "PUT",
+      headers: {
+        ...authHeaders,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    });
+
+    let detail = "";
+    if (!res.ok) {
+      try {
+        const parsed = await res.json();
+        detail = parsed?.error || parsed?.detail || "";
+      } catch {
+        detail = await res.text().catch(() => "<no body>");
+      }
+      throw new Error(detail || `Save failed (${res.status})`);
+    }
+
+    return (await res.json()) as ProtocolRun;
+  }
+
+  useEffect(() => {
+    if (!selectedRun || selectedRun.status !== "IN_PROGRESS" || viewMode !== "active") return;
+
+    const signature = toAutoSaveSignature(interactionState);
+    if (signature === lastAutoSavedSignatureRef.current) return;
+
+    const timeout = window.setTimeout(async () => {
+      try {
+        setAutoSaveState("saving");
+        const updated = await updateRun(selectedRun.id, {
+          interactionState: serializePersistedState(
+            interactionState,
+            savedUtilitySnapshot.utilityTimer,
+            savedUtilitySnapshot.utilityMinutes,
+            savedUtilitySnapshot.utilitySeconds
+          ),
+        });
+        setRuns((prev) => prev.map((run) => (run.id === updated.id ? updated : run)));
+        lastAutoSavedSignatureRef.current = signature;
+        setAutoSaveState("saved");
+      } catch (error) {
+        console.error("Auto-save failed:", error);
+        setAutoSaveState("error");
+      }
+    }, 5000);
+
+    return () => window.clearTimeout(timeout);
+  }, [selectedRun, interactionState, viewMode, savedUtilitySnapshot]);
+
+  async function handleManualSave() {
     if (!selectedRun) return;
+
+    setManualSaveLoading(true);
+    try {
+      const updated = await updateRun(selectedRun.id, {
+        notes,
+        interactionState: serializePersistedState(interactionState, utilityTimer, utilityMinutes, utilitySeconds),
+      });
+      setRuns((prev) => prev.map((run) => (run.id === updated.id ? updated : run)));
+      setSavedUtilitySnapshot({
+        utilityTimer,
+        utilityMinutes,
+        utilitySeconds,
+      });
+      setSaveError(null);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to save notes and utility timer.";
+      setSaveError(message);
+    } finally {
+      setManualSaveLoading(false);
+    }
+  }
+
+  async function handleEndRun() {
+    if (!selectedRun || selectedRun.status !== "IN_PROGRESS") return;
+
+    const completion = parseRunCompletion(selectedRun.runBody, interactionState);
+    if (completion.missingSteps.length > 0 || completion.missingComponents.length > 0 || completion.missingFields.length > 0) {
+      const lines: string[] = [];
+      if (completion.missingSteps.length > 0) {
+        lines.push("Incomplete steps:");
+        lines.push(...completion.missingSteps.map((item) => `- ${item}`));
+      }
+      if (completion.missingComponents.length > 0) {
+        lines.push("Incomplete components:");
+        lines.push(...completion.missingComponents.map((item) => `- ${item}`));
+      }
+      if (completion.missingFields.length > 0) {
+        lines.push("Incomplete entry fields:");
+        lines.push(...completion.missingFields.map((item) => `- ${item}`));
+      }
+
+      const proceedWithIncomplete = window.confirm(
+        `Not all steps are completed - would you like to proceed anyways?\n\n${lines.join("\n")}\n\nTimers are ignored for completion checks.`
+      );
+      if (!proceedWithIncomplete) return;
+    }
+
+    const confirmed = window.confirm(
+      `End Run: ${selectedRun.title}?\n\nWarning: once data is submitted, it cannot be changed and will be timestamped to prevent tampering with raw data.`
+    );
+
+    if (!confirmed) return;
 
     setLoading(true);
     try {
-      const res = await fetch(`/api/protocol-runs/${selectedRun.id}`, {
-        method: "PUT",
-        headers: {
-          ...authHeaders,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          interactionState: JSON.stringify(interactionState),
-          notes,
-          status: selectedRun.status,
-        }),
+      const updated = await updateRun(selectedRun.id, {
+        status: "COMPLETED",
+        notes,
+        interactionState: serializePersistedState(interactionState, utilityTimer, utilityMinutes, utilitySeconds),
       });
-
-      if (!res.ok) {
-        const text = await res.text().catch(() => "<no body>");
-        console.error("Failed to save run:", res.status, text);
-        return;
-      }
-
-      const updated = (await res.json()) as ProtocolRun;
       setRuns((prev) => prev.map((run) => (run.id === updated.id ? updated : run)));
       setSelectedRunId(updated.id);
+      setViewMode("history");
+      setSaveError(null);
+      window.alert(`Run ended and locked at ${new Date(updated.updatedAt).toLocaleString()}.`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to end run.";
+      setSaveError(message);
     } finally {
       setLoading(false);
     }
-  }
-
-  function formatDuration(totalSeconds: number) {
-    const minutes = Math.floor(totalSeconds / 60)
-      .toString()
-      .padStart(2, "0");
-    const seconds = (totalSeconds % 60).toString().padStart(2, "0");
-    return `${minutes}:${seconds}`;
   }
 
   function applyUtilityDuration(minutes: number, seconds: number) {
@@ -263,16 +543,18 @@ function RunsPageContent() {
             User: <span className="font-semibold text-zinc-100">{currentUser.name}</span>
           </span>
           <select
-            value={currentUser.role}
+            value={currentUser.id}
             onChange={(e) => {
-              const next = e.target.value === "ADMIN" ? ADMIN_USER : DEFAULT_USER;
+              const next = e.target.value === "admin-user" ? ADMIN_USER : e.target.value === "jake-user" ? JAKE_USER : FINN_USER;
               setCurrentUser(next);
               setSelectedRunId(null);
+              setSaveError(null);
             }}
             className="rounded border border-zinc-700 bg-zinc-800 px-2 py-1 text-xs text-zinc-100"
           >
-            <option value="MEMBER">Login as Default</option>
-            <option value="ADMIN">Login as Admin</option>
+            <option value="finn-user">Login as Finn</option>
+            <option value="jake-user">Login as Jake</option>
+            <option value="admin-user">Login as Admin</option>
           </select>
         </div>
       </div>
@@ -292,6 +574,51 @@ function RunsPageContent() {
         </button>
       </div>
 
+      <div className="rounded border border-zinc-800 bg-zinc-900 p-3">
+        <div className="grid gap-2 md:grid-cols-4">
+          <input
+            value={runQuery}
+            onChange={(e) => setRunQuery(e.target.value)}
+            placeholder="Search runs"
+            className="rounded border border-zinc-700 bg-zinc-800 px-2 py-1 text-xs text-zinc-100 placeholder:text-zinc-500"
+          />
+          <select
+            value={runTechniqueFilter}
+            onChange={(e) => setRunTechniqueFilter(e.target.value)}
+            className="rounded border border-zinc-700 bg-zinc-800 px-2 py-1 text-xs text-zinc-100"
+          >
+            <option value="ALL">All techniques</option>
+            {techniqueOptions.map((option) => (
+              <option key={option} value={option}>
+                {option}
+              </option>
+            ))}
+          </select>
+          <select
+            value={runAuthorFilter}
+            onChange={(e) => setRunAuthorFilter(e.target.value)}
+            className="rounded border border-zinc-700 bg-zinc-800 px-2 py-1 text-xs text-zinc-100"
+          >
+            <option value="ALL">All authors</option>
+            {authorOptions.map((author) => (
+              <option key={author} value={author}>
+                {author}
+              </option>
+            ))}
+          </select>
+          <select
+            value={runSortBy}
+            onChange={(e) => setRunSortBy(e.target.value as RunSortBy)}
+            className="rounded border border-zinc-700 bg-zinc-800 px-2 py-1 text-xs text-zinc-100"
+          >
+            <option value="newest">Sort: Newest</option>
+            <option value="oldest">Sort: Oldest</option>
+            <option value="technique">Sort: Technique</option>
+            <option value="author">Sort: Author</option>
+          </select>
+        </div>
+      </div>
+
       {viewMode === "active" ? (
         <div className="grid gap-5 lg:grid-cols-[280px_minmax(0,1fr)_320px]">
           <aside className="rounded border border-zinc-800 bg-zinc-900 p-3">
@@ -305,6 +632,7 @@ function RunsPageContent() {
                   >
                     <p className="text-sm font-semibold text-zinc-100">{run.title}</p>
                     <p className="text-xs text-zinc-400">{run.sourceEntry?.title || run.sourceEntryId}</p>
+                    <p className="text-[11px] text-zinc-500">{run.sourceEntry?.technique || "General"} • {run.sourceEntry?.author?.name || "Unknown"}</p>
                   </button>
                 </li>
               ))}
@@ -315,18 +643,18 @@ function RunsPageContent() {
           <main className="space-y-4">
             {selectedRun ? (
               <div className="rounded border border-zinc-800 bg-zinc-900 p-4">
-                <div className="mb-3 flex items-center justify-between">
+                <div className="mb-3 flex items-center justify-between gap-3">
                   <div>
                     <h2 className="text-lg font-semibold text-zinc-100">{selectedRun.title}</h2>
                     <p className="text-xs text-zinc-400">Running from: {selectedRun.sourceEntry?.title || selectedRun.sourceEntryId}</p>
+                    <p className="text-[11px] text-zinc-500">{selectedRun.sourceEntry?.technique || "General"} • {selectedRun.sourceEntry?.author?.name || "Unknown"}</p>
                   </div>
-                  <button
-                    onClick={handleSaveRun}
-                    disabled={loading}
-                    className="rounded bg-blue-600 px-3 py-2 text-sm text-white hover:bg-blue-500 disabled:opacity-50"
-                  >
-                    Save Run Progress
-                  </button>
+                  <div className="text-right text-xs text-zinc-400">
+                    <p>
+                      Auto-save: {autoSaveState === "saving" ? "Saving..." : autoSaveState === "saved" ? "Saved" : autoSaveState === "error" ? "Failed" : "Idle"}
+                    </p>
+                    <p>Protocol interactions auto-save after 5s.</p>
+                  </div>
                 </div>
 
                 <RunLockedView
@@ -334,6 +662,17 @@ function RunsPageContent() {
                   initialInteractionState={selectedRun.interactionState || "{}"}
                   onChange={setInteractionState}
                 />
+
+                <div className="mt-5 border-t border-zinc-800 pt-4">
+                  <button
+                    onClick={handleEndRun}
+                    disabled={loading || selectedRun.status !== "IN_PROGRESS"}
+                    className="w-full rounded bg-red-600 px-4 py-3 text-sm font-semibold text-white hover:bg-red-500 disabled:opacity-50"
+                  >
+                    End Run
+                  </button>
+                  <p className="mt-2 text-xs text-zinc-500">Ending a run permanently locks it and timestamps submission.</p>
+                </div>
               </div>
             ) : (
               <div className="rounded border border-zinc-800 bg-zinc-900 p-4 text-sm text-zinc-400">Select an active run.</div>
@@ -405,6 +744,14 @@ function RunsPageContent() {
                   {utilityTimer.locked ? "Unlock" : "Lock"}
                 </button>
               </div>
+              <button
+                onClick={handleManualSave}
+                disabled={manualSaveLoading || !selectedRun}
+                className="mt-4 w-full rounded bg-blue-600 px-3 py-2 text-sm text-white hover:bg-blue-500 disabled:opacity-50"
+              >
+                Save Run Progress
+              </button>
+              <p className="mt-1 text-[11px] text-zinc-500">Manual save persists Notes and Utility Timer.</p>
             </div>
           </aside>
         </div>
@@ -412,25 +759,6 @@ function RunsPageContent() {
         <div className="grid gap-5 lg:grid-cols-[320px_minmax(0,1fr)]">
           <aside className="rounded border border-zinc-800 bg-zinc-900 p-3">
             <h2 className="mb-2 text-lg font-semibold text-zinc-100">Run History</h2>
-            <div className="mb-3 space-y-2">
-              <input
-                value={historyQuery}
-                onChange={(e) => setHistoryQuery(e.target.value)}
-                placeholder="Search runs"
-                className="w-full rounded border border-zinc-700 bg-zinc-800 px-2 py-1 text-xs text-zinc-100 placeholder:text-zinc-500"
-              />
-              <select
-                value={historySortBy}
-                onChange={(e) => setHistorySortBy(e.target.value as SortBy)}
-                className="w-full rounded border border-zinc-700 bg-zinc-800 px-2 py-1 text-xs text-zinc-100"
-              >
-                <option value="newest">Sort: Newest</option>
-                <option value="oldest">Sort: Oldest</option>
-                <option value="title">Sort: Run Title</option>
-                <option value="protocol">Sort: Protocol</option>
-                <option value="status">Sort: Status</option>
-              </select>
-            </div>
             <ul className="space-y-2">
               {historyRuns.map((run) => (
                 <li key={run.id}>
@@ -440,6 +768,7 @@ function RunsPageContent() {
                   >
                     <p className="text-sm font-semibold text-zinc-100">{run.title}</p>
                     <p className="text-xs text-zinc-400">{run.sourceEntry?.title || run.sourceEntryId}</p>
+                    <p className="text-[11px] text-zinc-500">{run.sourceEntry?.technique || "General"} • {run.sourceEntry?.author?.name || "Unknown"}</p>
                     <p className="text-[11px] text-zinc-500">{run.status} • {new Date(run.createdAt).toLocaleString()}</p>
                   </button>
                 </li>
@@ -453,9 +782,8 @@ function RunsPageContent() {
               <div className="rounded border border-zinc-800 bg-zinc-900 p-4">
                 <div className="mb-3">
                   <h2 className="text-lg font-semibold text-zinc-100">{selectedRun.title}</h2>
-                  <p className="text-xs text-zinc-400">
-                    Locked history • Protocol: {selectedRun.sourceEntry?.title || selectedRun.sourceEntryId}
-                  </p>
+                  <p className="text-xs text-zinc-400">Locked history • Protocol: {selectedRun.sourceEntry?.title || selectedRun.sourceEntryId}</p>
+                  <p className="text-[11px] text-zinc-500">{selectedRun.sourceEntry?.technique || "General"} • {selectedRun.sourceEntry?.author?.name || "Unknown"}</p>
                 </div>
 
                 <RunLockedView
@@ -467,6 +795,7 @@ function RunsPageContent() {
                 <div className="mt-4 rounded border border-zinc-800 bg-zinc-950 p-3">
                   <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-400">Run Notes</p>
                   <p className="whitespace-pre-wrap text-sm text-zinc-300">{selectedRun.notes || "No notes captured for this run."}</p>
+                  <p className="mt-2 text-xs text-zinc-500">Ended/Last updated: {new Date(selectedRun.updatedAt).toLocaleString()}</p>
                 </div>
               </div>
             ) : (
@@ -475,6 +804,8 @@ function RunsPageContent() {
           </main>
         </div>
       )}
+
+      {saveError && <div className="rounded border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-200">{saveError}</div>}
     </div>
   );
 }

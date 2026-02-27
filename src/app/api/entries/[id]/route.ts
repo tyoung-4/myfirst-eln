@@ -26,10 +26,8 @@ function getActorFromRequest(request?: Request): Actor {
   const headerName = request?.headers.get("x-user-name")?.trim();
   const headerRole = request?.headers.get("x-user-role")?.trim().toUpperCase();
 
-  const name = headerName || "Default";
-  const safeId =
-    headerId ||
-    (name === "Default" ? "default-user" : `default-${name.toLowerCase().replace(/[^a-z0-9]+/g, "-") || "user"}`);
+  const name = headerName || "Finn";
+  const safeId = headerId || `user-${name.toLowerCase().replace(/[^a-z0-9]+/g, "-") || "member"}`;
   const role: "ADMIN" | "MEMBER" = headerRole === "ADMIN" ? "ADMIN" : "MEMBER";
 
   return {
@@ -58,13 +56,11 @@ async function ensureActor(actor: Actor) {
 
 function canModifyEntry(actor: Actor, authorId: string | null): boolean {
   if (actor.role === "ADMIN") return true;
-  if (actor.name === "Default" && (authorId === "default-user" || authorId === "default-default")) return true;
   return Boolean(authorId && actor.id === authorId);
 }
 
 function canEditEntry(actor: Actor, authorId: string | null): boolean {
   if (actor.role === "ADMIN") return true;
-  if (actor.name === "Default" && (authorId === "default-user" || authorId === "default-default")) return true;
   return Boolean(authorId && actor.id === authorId);
 }
 
