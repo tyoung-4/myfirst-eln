@@ -29,6 +29,28 @@ const ADMIN_USER: CurrentUser = {
   role: "ADMIN",
 };
 
+const TECHNIQUE_TABS = [
+  { id: "ALL", label: "All Protocols", icon: "📚" },
+  { id: "CLONING", label: "Cloning", icon: "🧬" },
+  { id: "EXPRESSION_PURIFICATION", label: "Expression & Purification", icon: "📈" },
+  { id: "MASS_SPEC", label: "Mass Spectrometry", icon: "🧪" },
+  { id: "ANTIBODY_CHARACTERIZATION", label: "Antibody Characterization", icon: "🧫" },
+  { id: "CELL_CULTURE", label: "Cell Culture", icon: "🧬" },
+  { id: "SAMPLE_PREP_QC", label: "Sample Prep & QC", icon: "🧊" },
+] as const;
+
+function normalizeTechniqueBucket(technique: string): (typeof TECHNIQUE_TABS)[number]["id"] {
+  const value = technique.toLowerCase();
+  if (value.includes("clon")) return "CLONING";
+  if (value.includes("mass") || value.includes("ms")) return "MASS_SPEC";
+  if (value.includes("expression") || value.includes("purification") || value.includes("purif")) return "EXPRESSION_PURIFICATION";
+  if (value.includes("flow") || value.includes("elisa") || value.includes("western") || value.includes("binding") || value.includes("antibody")) {
+    return "ANTIBODY_CHARACTERIZATION";
+  }
+  if (value.includes("cell") || value.includes("transfection")) return "CELL_CULTURE";
+  return "SAMPLE_PREP_QC";
+}
+
 export default function EntriesPage() {
   const router = useRouter();
   const [entries, setEntries] = useState<Entry[]>([]);
@@ -39,9 +61,10 @@ export default function EntriesPage() {
   const [currentUser, setCurrentUser] = useState<CurrentUser>(FINN_USER);
   const [isDirty, setIsDirty] = useState(false);
   const [keyword, setKeyword] = useState("");
-  const [techniqueFilter, setTechniqueFilter] = useState("ALL");
+  const [techniqueFilter, setTechniqueFilter] = useState<(typeof TECHNIQUE_TABS)[number]["id"]>("ALL");
   const [authorFilter, setAuthorFilter] = useState("ALL");
   const [sortBy, setSortBy] = useState<"newest" | "oldest" | "technique" | "author">("newest");
+  const [activeTab, setActiveTab] = useState<"library" | "editor">("library");
 
   const authHeaders = useMemo(
     () => ({
@@ -197,6 +220,7 @@ export default function EntriesPage() {
         setEditorMode("edit");
         setSelected(data);
         setIsDirty(false);
+        setActiveTab("editor");
       }
     } finally {
       setLoading(false);
@@ -220,6 +244,7 @@ export default function EntriesPage() {
       setSelected(cloned);
       setEditorMode("edit");
       setIsDirty(false);
+      setActiveTab("editor");
     } finally {
       setLoading(false);
     }
@@ -262,7 +287,8 @@ export default function EntriesPage() {
     const filtered = entries.filter((entry) => {
       const authorName = entry.author?.name || "Unknown";
       const technique = entry.technique || "General";
-      const matchesTechnique = techniqueFilter === "ALL" || technique === techniqueFilter;
+      const bucket = normalizeTechniqueBucket(technique);
+      const matchesTechnique = techniqueFilter === "ALL" || bucket === techniqueFilter;
       const matchesAuthor = authorFilter === "ALL" || authorName === authorFilter;
       const matchesKeyword =
         !query ||
@@ -284,6 +310,7 @@ export default function EntriesPage() {
   }, [entries, keyword, techniqueFilter, authorFilter, sortBy]);
 
   const runDisabled = !selected || loading || editorMode !== "edit" || isDirty;
+  const showRunAction = activeTab === "editor" && editorMode === "edit" && Boolean(selected) && !isDirty;
 
   async function handleEdit(id: string) {
     const entry = entries.find((e) => e.id === id);
@@ -292,11 +319,49 @@ export default function EntriesPage() {
   }
 
   return (
-    <div className="flex min-h-screen flex-col gap-5 bg-zinc-950 p-6 text-zinc-100">
+    <div className="flex min-h-screen flex-col gap-3 bg-zinc-950 p-6 text-zinc-100">
       <AppTopNav />
-      <div className="flex items-center justify-between rounded border border-zinc-800 bg-zinc-900 px-4 py-2">
-        <h1 className="text-base font-semibold text-zinc-100">Protocols</h1>
-        <div className="flex items-center gap-2 text-sm text-zinc-400">
+      <div className="flex items-center gap-2">
+        <button
+          onClick={() => setActiveTab("library")}
+          className={`rounded px-3 py-1.5 text-sm ${activeTab === "library" ? "bg-indigo-600 text-white" : "bg-zinc-800 text-zinc-200 hover:bg-zinc-700"}`}
+        >
+          Protocol Library
+        </button>
+        <button
+          onClick={() => {
+            setActiveTab("editor");
+            setEditorMode("create");
+            setSelected(null);
+            setIsDirty(false);
+            setSaveError(null);
+          }}
+          className={`rounded px-3 py-1.5 text-sm ${activeTab === "editor" ? "bg-indigo-600 text-white" : "bg-zinc-800 text-zinc-200 hover:bg-zinc-700"}`}
+        >
+          Protocol Editor
+        </button>
+        {showRunAction && (
+          <button
+            onClick={handleRunProtocol}
+            disabled={runDisabled}
+            className="rounded bg-indigo-600 px-3 py-1.5 text-sm text-white hover:bg-indigo-500 disabled:opacity-50"
+          >
+            Run Protocol
+          </button>
+        )}
+        <button
+          onClick={() => {
+            setActiveTab("editor");
+            setEditorMode("create");
+            setSelected(null);
+            setIsDirty(false);
+            setSaveError(null);
+          }}
+          className="ml-auto rounded bg-emerald-600 px-3 py-1.5 text-sm text-white hover:bg-emerald-500"
+        >
+          Generate New Protocol
+        </button>
+        <div className="ml-2 flex items-center gap-2 text-sm text-zinc-400">
           <span>
             User: <span className="font-semibold text-zinc-100">{currentUser.name}</span>
           </span>
@@ -316,41 +381,39 @@ export default function EntriesPage() {
           </select>
         </div>
       </div>
-      <div className="flex gap-5">
-        <aside className="w-64 shrink-0">
-          <h2 className="mb-3 text-lg font-semibold text-zinc-100">Protocols</h2>
-          <div className="mb-4">
-            <button
-              onClick={() => {
-                setSelected(null);
-                setEditorMode("create");
-                setSaveError(null);
-                setIsDirty(false);
-              }}
-              className="mb-2 w-full rounded bg-emerald-600 px-3 py-2 text-sm text-white hover:bg-emerald-500"
-            >
-              New Protocol
-            </button>
+
+      {activeTab === "library" ? (
+        <div className="rounded border border-zinc-800 bg-zinc-900 p-3">
+          <div className="mb-3 flex flex-wrap gap-2">
+            {TECHNIQUE_TABS.map((tab) => {
+              const count =
+                tab.id === "ALL"
+                  ? entries.length
+                  : entries.filter((entry) => normalizeTechniqueBucket(entry.technique || "General") === tab.id).length;
+              return (
+                <button
+                  key={tab.id}
+                  onClick={() => setTechniqueFilter(tab.id)}
+                  className={`rounded border px-2 py-1 text-xs ${
+                    techniqueFilter === tab.id
+                      ? "border-indigo-500 bg-indigo-600 text-white"
+                      : "border-zinc-700 bg-zinc-800 text-zinc-200 hover:bg-zinc-700"
+                  }`}
+                >
+                  <span className="mr-1">{tab.icon}</span>
+                  {tab.label} <span className="opacity-70">({count})</span>
+                </button>
+              );
+            })}
           </div>
-          <div className="mb-3 space-y-2 rounded border border-zinc-800 bg-zinc-900 p-2">
+
+          <div className="mb-3 grid gap-2 md:grid-cols-3">
             <input
               value={keyword}
               onChange={(e) => setKeyword(e.target.value)}
               placeholder="Search keyword"
               className="w-full rounded border border-zinc-700 bg-zinc-800 px-2 py-1 text-xs text-zinc-100 placeholder:text-zinc-500"
             />
-            <select
-              value={techniqueFilter}
-              onChange={(e) => setTechniqueFilter(e.target.value)}
-              className="w-full rounded border border-zinc-700 bg-zinc-800 px-2 py-1 text-xs text-zinc-100"
-            >
-              <option value="ALL">All techniques</option>
-              {TECHNIQUE_OPTIONS.map((option) => (
-                <option key={option} value={option}>
-                  {option}
-                </option>
-              ))}
-            </select>
             <select
               value={authorFilter}
               onChange={(e) => setAuthorFilter(e.target.value)}
@@ -383,19 +446,10 @@ export default function EntriesPage() {
             onClone={handleClone}
             onDelete={handleDelete}
           />
-        </aside>
-        <main className="flex-1">
-          <div className="mb-4 flex items-center justify-between">
-            <h2 className="text-xl font-semibold text-zinc-100">Editor</h2>
-            <button
-              onClick={handleRunProtocol}
-              disabled={runDisabled}
-              className="rounded bg-indigo-600 px-3 py-2 text-sm text-white hover:bg-indigo-500 disabled:opacity-50"
-            >
-              Run Protocol
-            </button>
-          </div>
-          {runDisabled && <p className="-mt-2 mb-3 text-xs text-zinc-400">(save first!)</p>}
+        </div>
+      ) : (
+        <main className="rounded border border-zinc-800 bg-zinc-900 p-2">
+          {selected && editorMode === "edit" && isDirty && <p className="-mt-2 mb-3 text-xs text-zinc-400">(save first!)</p>}
           {saveError && (
             <div className="mb-3 rounded border border-red-500/40 bg-red-950/50 px-3 py-2 text-sm text-red-200">
               {saveError}
@@ -409,32 +463,14 @@ export default function EntriesPage() {
               setSelected(null);
               setEditorMode("create");
               setIsDirty(false);
+              setActiveTab("library");
             }}
             onDirtyChange={setIsDirty}
             saving={loading}
+            protocolShell={true}
           />
-          {selected && (
-            <div className="mt-6 rounded border border-zinc-800 bg-zinc-900 p-4">
-              <h3 className="text-lg font-medium text-zinc-100">
-                Preview
-                {selected.id === Q5_TEMPLATE_ENTRY_ID && (
-                  <span className="ml-2 rounded border border-emerald-500/60 bg-emerald-500/20 px-2 py-0.5 text-xs text-emerald-200">
-                    Permanent Template
-                  </span>
-                )}
-              </h3>
-              <p className="mt-1 text-sm text-zinc-300">{selected.description || "No description"}</p>
-              <p className="mt-1 text-xs text-zinc-400">Author: {selected.author?.name || currentUser.name}</p>
-              <p className="mt-1 text-xs text-zinc-400">Technique: {selected.technique || "General"}</p>
-              <div className="prose prose-sm mt-4 max-w-none">
-                <p className="text-sm text-zinc-300">
-                  {typeof selected.body === "string" ? selected.body.slice(0, 300) : "Rich content"}
-                </p>
-              </div>
-            </div>
-          )}
         </main>
-      </div>
+      )}
     </div>
   );
 }

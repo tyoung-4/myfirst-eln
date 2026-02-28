@@ -18,12 +18,18 @@ type Props = {
   initialContent?: string;
   onChange?: (content: string) => void;
   editable?: boolean;
+  externalAction?: {
+    id: number;
+    type: "insert-section" | "insert-step" | "insert-sub-step" | "convert-to-step" | "add-step-case";
+  } | null;
 };
 
 type EntryTypeOption = {
   label: string;
   defaultUnit: string;
 };
+
+type TimerMode = "countdown" | "countup" | "longrange";
 
 const ENTRY_TYPE_OPTIONS: EntryTypeOption[] = [
   { label: "Undefined", defaultUnit: "" },
@@ -81,24 +87,36 @@ function MeasurementFieldView({ node, updateAttributes, editor }: NodeViewProps)
 function TimerFieldView({ node }: NodeViewProps) {
   const label = String(node.attrs.label ?? "Timer");
   const seconds = Number(node.attrs.seconds ?? 60);
+  const mode = String(node.attrs.mode ?? "countdown") as TimerMode;
   const [remaining, setRemaining] = useState(seconds);
   const [running, setRunning] = useState(false);
+  const [locked, setLocked] = useState(false);
+  const [firstStartedAt, setFirstStartedAt] = useState<number | null>(null);
+  const [startedAt, setStartedAt] = useState<number | null>(null);
+  const [endedAt, setEndedAt] = useState<number | null>(null);
 
   React.useEffect(() => {
     setRemaining(seconds);
     setRunning(false);
+    setLocked(false);
+    setFirstStartedAt(null);
+    setStartedAt(null);
+    setEndedAt(null);
   }, [seconds]);
 
   React.useEffect(() => {
     if (!running) return;
     const id = window.setInterval(() => {
       setRemaining((prev) => {
-        if (prev <= 1) {
-          window.clearInterval(id);
+        if (mode === "countup" || mode === "longrange") return prev + 1;
+        const next = prev - 1;
+        if (next <= 0) {
           setRunning(false);
+          setLocked(true);
+          setEndedAt(Date.now());
           return 0;
         }
-        return prev - 1;
+        return next;
       });
     }, 1000);
 
@@ -107,24 +125,63 @@ function TimerFieldView({ node }: NodeViewProps) {
 
   return (
     <NodeViewWrapper as="span" className="inline-block align-middle">
-      <span className="inline-flex items-center gap-2 rounded border border-amber-300 bg-amber-50 px-2 py-1 text-xs text-amber-900" contentEditable={false}>
-        <span className="font-medium">{label}</span>
-        <span className="font-mono">{formatDuration(remaining)}</span>
-        <button
-          onClick={() => setRunning((v) => !v)}
-          className="rounded border border-amber-400 px-2 py-0.5 text-[11px]"
+      <span className="inline-flex min-w-[14ch] flex-col gap-1 rounded border border-sky-300 bg-sky-50 px-2 py-1 text-xs text-sky-900" contentEditable={false}>
+        <span className="flex items-center gap-2">
+          <span className="font-medium">{label}</span>
+          <span className="font-mono">{formatDuration(remaining)}</span>
+        </span>
+        {mode !== "countup" && <span className="text-[11px] opacity-80">Elapsed: {formatDuration(Math.max(0, seconds - remaining))}</span>}
+        {firstStartedAt && <span className="text-[11px] opacity-80">First start: {new Date(firstStartedAt).toLocaleTimeString()}</span>}
+        {mode === "longrange" && endedAt && startedAt && (
+          <span className="text-[11px] opacity-80">
+            {new Date(startedAt).toLocaleTimeString()} - {new Date(endedAt).toLocaleTimeString()}
+          </span>
+        )}
+        <span className="flex items-center gap-1">
+          <button
+          onClick={() => {
+            if (mode === "longrange") {
+              if (locked && endedAt) return;
+              if (!running) {
+                const now = Date.now();
+                if (!firstStartedAt) setFirstStartedAt(now);
+                setStartedAt(now);
+                setEndedAt(null);
+                setRemaining(0);
+                setRunning(true);
+                setLocked(false);
+              } else {
+                setRunning(false);
+                setEndedAt(Date.now());
+                setLocked(true);
+              }
+              return;
+            }
+            if (locked) return;
+            if (!running && !firstStartedAt) setFirstStartedAt(Date.now());
+            setRunning((v) => !v);
+          }}
+          disabled={locked && !(mode === "longrange" && running)}
+          className="rounded border border-sky-400 px-2 py-0.5 text-[11px] disabled:opacity-40"
         >
-          {running ? "Pause" : "Start"}
+          {mode === "longrange" ? (running ? "End" : "Begin") : running ? "Pause" : "Start"}
         </button>
         <button
           onClick={() => {
+            const confirmed = window.confirm("Reset timer? Use reset only for accidental clicks.");
+            if (!confirmed) return;
             setRunning(false);
             setRemaining(seconds);
+            setLocked(false);
+            setFirstStartedAt(null);
+            setStartedAt(null);
+            setEndedAt(null);
           }}
-          className="rounded border border-amber-400 px-2 py-0.5 text-[11px]"
+          className="rounded border border-sky-400 px-2 py-0.5 text-[11px]"
         >
           Reset
         </button>
+        </span>
       </span>
     </NodeViewWrapper>
   );
@@ -207,6 +264,7 @@ const TimerFieldNode = Node.create({
     return {
       label: { default: "Timer" },
       seconds: { default: 60 },
+      mode: { default: "countdown" },
     };
   },
   parseHTML() {
@@ -215,13 +273,14 @@ const TimerFieldNode = Node.create({
   renderHTML({ HTMLAttributes }) {
     const label = String(HTMLAttributes.label ?? "Timer");
     const seconds = Number(HTMLAttributes.seconds ?? 60);
+    const mode = String(HTMLAttributes.mode ?? "countdown");
     return [
       "span",
       mergeAttributes(HTMLAttributes, {
         "data-entry-node": "timer",
         class: "entry-timer",
       }),
-      `${label} (${formatDuration(seconds)})`,
+      `${label} (${mode === "countup" ? "count up" : mode === "longrange" ? "long range" : formatDuration(seconds)})`,
     ];
   },
   addNodeView() {
@@ -262,7 +321,7 @@ const ComponentFieldNode = Node.create({
   },
 });
 
-export default function RichTextEditor({ initialContent = "", onChange, editable = true }: Props) {
+export default function RichTextEditor({ initialContent = "", onChange, editable = true, externalAction = null }: Props) {
   const [tableRows, setTableRows] = useState(3);
   const [tableCols, setTableCols] = useState(3);
   const [showTableModal, setShowTableModal] = useState(false);
@@ -275,6 +334,7 @@ export default function RichTextEditor({ initialContent = "", onChange, editable
   const [timerLabel, setTimerLabel] = useState("Step Timer");
   const [timerMinutes, setTimerMinutes] = useState(5);
   const [timerSeconds, setTimerSeconds] = useState(0);
+  const [timerMode, setTimerMode] = useState<TimerMode>("countdown");
   const [componentType, setComponentType] = useState(ENTRY_TYPE_OPTIONS[0].label);
   const [componentUnit, setComponentUnit] = useState(ENTRY_TYPE_OPTIONS[0].defaultUnit);
   const [componentCustomLabel, setComponentCustomLabel] = useState("");
@@ -335,7 +395,7 @@ export default function RichTextEditor({ initialContent = "", onChange, editable
         },
       }),
       TaskItem.configure({
-        nested: false,
+        nested: true,
         HTMLAttributes: {
           class: "step-item",
         },
@@ -362,7 +422,70 @@ export default function RichTextEditor({ initialContent = "", onChange, editable
     onUpdate: handleUpdate,
   });
 
+  React.useEffect(() => {
+    if (!editor || !externalAction) return;
+
+    if (externalAction.type === "insert-section") {
+      editor
+        .chain()
+        .focus()
+        .insertContent(
+          "<h2>Untitled section</h2><ul data-type='taskList'><li data-type='taskItem' data-checked='false'><p>Enter step description</p></li></ul><p></p>"
+        )
+        .run();
+      return;
+    }
+
+    if (externalAction.type === "insert-step") {
+      const inserted = editor.chain().focus().splitListItem("taskItem").run();
+      if (!inserted) {
+        editor
+          .chain()
+          .focus()
+          .insertContent(
+            "<ul data-type='taskList'><li data-type='taskItem' data-checked='false'><p>Enter step description</p></li></ul>"
+          )
+          .run();
+      }
+      return;
+    }
+
+    if (externalAction.type === "insert-sub-step") {
+      const insertedSub = editor.chain().focus().splitListItem("taskItem").sinkListItem("taskItem").run();
+      if (!insertedSub) {
+        editor.chain().focus().insertContent("<p>Sub-step: </p>").run();
+      }
+      return;
+    }
+
+    if (externalAction.type === "convert-to-step") {
+      const converted = editor.chain().focus().liftListItem("taskItem").run();
+      if (!converted) {
+        editor
+          .chain()
+          .focus()
+          .insertContent(
+            "<ul data-type='taskList'><li data-type='taskItem' data-checked='false'><p>Converted step</p></li></ul>"
+          )
+          .run();
+      }
+      return;
+    }
+
+    if (externalAction.type === "add-step-case") {
+      editor.chain().focus().insertContent("<p><strong>Step-case:</strong> If [condition], then [action].</p>").run();
+    }
+  }, [editor, externalAction]);
+
   if (!editor) return <div className="text-gray-400">Loading editor...</div>;
+
+  const handleEditorKeyDown: React.KeyboardEventHandler<HTMLDivElement> = (event) => {
+    if (!editable) return;
+    if (event.key !== "Enter" || event.shiftKey) return;
+    if (!editor.isActive("taskItem")) return;
+    event.preventDefault();
+    editor.chain().focus().splitListItem("taskItem").run();
+  };
 
   const addImage = () => {
     const url = window.prompt("Enter image URL:");
@@ -414,7 +537,8 @@ export default function RichTextEditor({ initialContent = "", onChange, editable
         type: "timerField",
         attrs: {
           label: timerLabel.trim() || "Step Timer",
-          seconds: Math.max(1, totalSeconds),
+          seconds: timerMode === "countdown" ? Math.max(1, totalSeconds) : 0,
+          mode: timerMode,
         },
       })
       .insertContent(" ")
@@ -735,7 +859,19 @@ export default function RichTextEditor({ initialContent = "", onChange, editable
                   className="w-full rounded border border-gray-300 px-3 py-2 text-gray-900"
                 />
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="mb-1 block text-sm font-medium text-gray-700">Timer Type</label>
+                <select
+                  value={timerMode}
+                  onChange={(e) => setTimerMode(e.target.value as TimerMode)}
+                  className="w-full rounded border border-gray-300 px-3 py-2 text-gray-900"
+                >
+                  <option value="countdown">Countdown</option>
+                  <option value="countup">Count Up</option>
+                  <option value="longrange">Long-range</option>
+                </select>
+              </div>
+              <div className={`grid grid-cols-2 gap-3 ${timerMode !== "countdown" ? "opacity-60" : ""}`}>
                 <div>
                   <label className="mb-1 block text-sm font-medium text-gray-700">Minutes</label>
                   <input
@@ -743,6 +879,7 @@ export default function RichTextEditor({ initialContent = "", onChange, editable
                     min="0"
                     value={timerMinutes}
                     onChange={(e) => setTimerMinutes(Math.max(0, parseInt(e.target.value, 10) || 0))}
+                    disabled={timerMode !== "countdown"}
                     className="w-full rounded border border-gray-300 px-3 py-2 text-gray-900"
                   />
                 </div>
@@ -754,6 +891,7 @@ export default function RichTextEditor({ initialContent = "", onChange, editable
                     max="59"
                     value={timerSeconds}
                     onChange={(e) => setTimerSeconds(Math.min(59, Math.max(0, parseInt(e.target.value, 10) || 0)))}
+                    disabled={timerMode !== "countdown"}
                     className="w-full rounded border border-gray-300 px-3 py-2 text-gray-900"
                   />
                 </div>
@@ -851,7 +989,7 @@ export default function RichTextEditor({ initialContent = "", onChange, editable
           editor.chain().focus().run();
         }}
       >
-        <EditorContent editor={editor} className="tiptap-root min-h-[22rem]" />
+        <EditorContent editor={editor} className="tiptap-root min-h-[22rem]" onKeyDown={handleEditorKeyDown} />
       </div>
     </div>
   );

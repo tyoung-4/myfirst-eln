@@ -3,11 +3,16 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 type TimerState = {
+  mode?: "countdown" | "countup" | "longrange";
   total: number;
   remaining: number;
   running: boolean;
   locked: boolean;
   alertUntil?: number;
+  startedAt?: number;
+  firstStartedAt?: number;
+  endedAt?: number;
+  elapsed?: number;
 };
 
 type InteractionState = {
@@ -75,6 +80,8 @@ export default function RunLockedView({ runBody, initialInteractionState, onChan
       {
         container: HTMLElement;
         value: HTMLSpanElement;
+        elapsed: HTMLSpanElement;
+        stamps: HTMLSpanElement;
         startPause: HTMLButtonElement;
         reset: HTMLButtonElement;
         lock: HTMLButtonElement;
@@ -82,6 +89,7 @@ export default function RunLockedView({ runBody, initialInteractionState, onChan
     >
   >({});
   const timerDefaultsRef = useRef<Record<string, number>>({});
+  const timerModesRef = useRef<Record<string, "countdown" | "countup" | "longrange">>({});
   const stepTimersRef = useRef<Record<string, string[]>>({});
   const stepComponentsRef = useRef<Record<string, string[]>>({});
 
@@ -129,26 +137,49 @@ export default function RunLockedView({ runBody, initialInteractionState, onChan
 
     for (const [timerKey, controls] of Object.entries(timerControlsRef.current)) {
       const defaultSeconds = timerDefaultsRef.current[timerKey] ?? 60;
+      const defaultMode = timerModesRef.current[timerKey] ?? "countdown";
       const timer = state.timers[timerKey] ?? {
+        mode: defaultMode,
         total: defaultSeconds,
-        remaining: defaultSeconds,
+        remaining: defaultMode === "countdown" ? defaultSeconds : 0,
         running: false,
         locked: false,
+        elapsed: 0,
       };
+      const mode = timer.mode ?? "countdown";
 
       controls.value.textContent = formatDuration(timer.remaining);
       if (timer.remaining < 0) {
         controls.container.className =
-          "entry-timer inline-flex items-center gap-2 rounded border border-red-300 bg-red-50 px-2 py-1 text-xs text-red-900";
+          "entry-timer inline-flex min-w-[14ch] flex-col gap-1 rounded border border-red-300 bg-red-50 px-2 py-1 text-xs text-red-900";
       } else {
         controls.container.className =
-          "entry-timer inline-flex items-center gap-2 rounded border border-amber-300 bg-amber-50 px-2 py-1 text-xs text-amber-900";
+          "entry-timer inline-flex min-w-[14ch] flex-col gap-1 rounded border border-sky-300 bg-sky-50 px-2 py-1 text-xs text-sky-900";
       }
-      controls.startPause.textContent = timer.running ? "Pause" : "Start";
-      controls.startPause.disabled = readOnly || timer.locked;
+      controls.startPause.textContent = mode === "longrange" ? (timer.running ? "End" : "Begin") : timer.running ? "Pause" : "Start";
+      controls.startPause.disabled = readOnly || (timer.locked && !(mode === "longrange" && timer.running));
       controls.reset.disabled = readOnly || timer.locked;
       controls.lock.textContent = timer.locked ? "Unlock" : "Lock";
       controls.lock.disabled = readOnly;
+
+      if (mode === "countup") {
+        controls.elapsed.textContent = "";
+      } else {
+        controls.elapsed.textContent = `Elapsed: ${formatDuration(timer.elapsed ?? 0)}`;
+      }
+
+      if (timer.firstStartedAt) {
+        const firstText = new Date(timer.firstStartedAt).toLocaleTimeString();
+        if (mode === "longrange" && timer.startedAt) {
+          const startText = new Date(timer.startedAt).toLocaleTimeString();
+          const endText = timer.endedAt ? new Date(timer.endedAt).toLocaleTimeString() : "";
+          controls.stamps.textContent = endText ? `First: ${firstText} | ${startText} - ${endText}` : `First: ${firstText} | Started: ${startText}`;
+        } else {
+          controls.stamps.textContent = `First start: ${firstText}`;
+        }
+      } else {
+        controls.stamps.textContent = "";
+      }
     }
   }, [readOnly]);
 
@@ -163,6 +194,7 @@ export default function RunLockedView({ runBody, initialInteractionState, onChan
     stepInputsRef.current = {};
     timerControlsRef.current = {};
     timerDefaultsRef.current = {};
+    timerModesRef.current = {};
     stepTimersRef.current = {};
     stepComponentsRef.current = {};
 
@@ -217,16 +249,19 @@ export default function RunLockedView({ runBody, initialInteractionState, onChan
             if (checked) {
               for (const timerKey of stepTimersRef.current[stepKey] ?? []) {
                 const existing = next.timers[timerKey] ?? {
+                  mode: "countdown",
                   total: timerDefaultsRef.current[timerKey] ?? 60,
                   remaining: timerDefaultsRef.current[timerKey] ?? 60,
                   running: false,
                   locked: false,
+                  elapsed: 0,
                 };
                 next.timers[timerKey] = {
                   ...existing,
                   running: false,
                   locked: true,
                   alertUntil: undefined,
+                  endedAt: existing.endedAt,
                 };
               }
             }
@@ -433,7 +468,9 @@ export default function RunLockedView({ runBody, initialInteractionState, onChan
       const timerKey = `timer-${index}`;
       const label = node.getAttribute("label") || "Timer";
       const defaultSeconds = Number(node.getAttribute("seconds") || "60");
+      const mode = (node.getAttribute("mode") || "countdown") as "countdown" | "countup" | "longrange";
       timerDefaultsRef.current[timerKey] = defaultSeconds;
+      timerModesRef.current[timerKey] = mode;
 
       const parentStep = node.closest<HTMLElement>("li[data-type='taskItem']");
       if (parentStep) {
@@ -444,8 +481,11 @@ export default function RunLockedView({ runBody, initialInteractionState, onChan
       }
 
       node.className =
-        "entry-timer inline-flex items-center gap-2 rounded border border-amber-300 bg-amber-50 px-2 py-1 text-xs text-amber-900";
+        "entry-timer inline-flex min-w-[14ch] flex-col gap-1 rounded border border-sky-300 bg-sky-50 px-2 py-1 text-xs text-sky-900";
       node.textContent = "";
+
+      const topRow = document.createElement("div");
+      topRow.className = "flex items-center gap-2";
 
       const labelSpan = document.createElement("span");
       labelSpan.className = "font-medium";
@@ -453,30 +493,84 @@ export default function RunLockedView({ runBody, initialInteractionState, onChan
 
       const valueSpan = document.createElement("span");
       valueSpan.className = "font-mono";
-      valueSpan.textContent = formatDuration(defaultSeconds);
+      valueSpan.textContent = formatDuration(mode === "countup" || mode === "longrange" ? 0 : defaultSeconds);
+
+      const elapsedSpan = document.createElement("span");
+      elapsedSpan.className = "text-[11px] opacity-80";
+
+      const stampsSpan = document.createElement("span");
+      stampsSpan.className = "text-[11px] opacity-80";
+
+      const buttonRow = document.createElement("div");
+      buttonRow.className = "flex items-center gap-1";
 
       const startPause = document.createElement("button");
-      startPause.className = "rounded border border-amber-400 px-2 py-0.5 text-[11px]";
-      startPause.textContent = "Start";
+      startPause.className = "rounded border border-sky-400 px-2 py-0.5 text-[11px]";
+      startPause.textContent = mode === "longrange" ? "Begin" : "Start";
       startPause.disabled = readOnly;
       if (!readOnly) {
         startPause.addEventListener("click", () => {
           setInteraction((prev) => {
+            const now = Date.now();
             const existing = prev.timers[timerKey] ?? {
+              mode,
               total: defaultSeconds,
-              remaining: defaultSeconds,
+              remaining: mode === "countup" || mode === "longrange" ? 0 : defaultSeconds,
               running: false,
               locked: false,
+              elapsed: 0,
             };
-            if (existing.locked) return prev;
+            if (mode === "longrange" && existing.locked && existing.endedAt) return prev;
+
+            if (mode === "longrange") {
+              if (!existing.running) {
+                return {
+                  ...prev,
+                  timers: {
+                    ...prev.timers,
+                    [timerKey]: {
+                      ...existing,
+                      mode,
+                      running: true,
+                      locked: true,
+                      startedAt: now,
+                      firstStartedAt: existing.firstStartedAt ?? now,
+                      endedAt: undefined,
+                      remaining: 0,
+                      elapsed: 0,
+                      alertUntil: undefined,
+                    },
+                  },
+                };
+              }
+
+              return {
+                ...prev,
+                timers: {
+                  ...prev.timers,
+                    [timerKey]: {
+                      ...existing,
+                      running: false,
+                      locked: true,
+                      endedAt: now,
+                      elapsed: existing.remaining,
+                    },
+                },
+              };
+            }
+
             return {
               ...prev,
               timers: {
                 ...prev.timers,
                 [timerKey]: {
                   ...existing,
+                  mode,
                   alertUntil: undefined,
                   running: !existing.running,
+                  locked: existing.running ? existing.locked : true,
+                  startedAt: existing.startedAt ?? now,
+                  firstStartedAt: existing.firstStartedAt ?? now,
                 },
               },
             };
@@ -485,17 +579,21 @@ export default function RunLockedView({ runBody, initialInteractionState, onChan
       }
 
       const reset = document.createElement("button");
-      reset.className = "rounded border border-amber-400 px-2 py-0.5 text-[11px]";
+      reset.className = "rounded border border-sky-400 px-2 py-0.5 text-[11px]";
       reset.textContent = "Reset";
       reset.disabled = readOnly;
       if (!readOnly) {
         reset.addEventListener("click", () => {
+          const confirmed = window.confirm("Reset timer? Use reset only for accidental clicks.");
+          if (!confirmed) return;
           setInteraction((prev) => {
             const existing = prev.timers[timerKey] ?? {
+              mode,
               total: defaultSeconds,
-              remaining: defaultSeconds,
+              remaining: mode === "countup" || mode === "longrange" ? 0 : defaultSeconds,
               running: false,
               locked: false,
+              elapsed: 0,
             };
             if (existing.locked) return prev;
             return {
@@ -504,9 +602,14 @@ export default function RunLockedView({ runBody, initialInteractionState, onChan
                 ...prev.timers,
                 [timerKey]: {
                   ...existing,
-                  remaining: existing.total,
+                  mode,
+                  remaining: mode === "countup" || mode === "longrange" ? 0 : existing.total,
                   running: false,
                   alertUntil: undefined,
+                  startedAt: undefined,
+                  firstStartedAt: undefined,
+                  endedAt: undefined,
+                  elapsed: 0,
                 },
               },
             };
@@ -515,17 +618,19 @@ export default function RunLockedView({ runBody, initialInteractionState, onChan
       }
 
       const lock = document.createElement("button");
-      lock.className = "rounded border border-amber-400 px-2 py-0.5 text-[11px]";
+      lock.className = "rounded border border-sky-400 px-2 py-0.5 text-[11px]";
       lock.textContent = "Lock";
       lock.disabled = readOnly;
       if (!readOnly) {
         lock.addEventListener("click", () => {
           setInteraction((prev) => {
             const existing = prev.timers[timerKey] ?? {
+              mode,
               total: defaultSeconds,
-              remaining: defaultSeconds,
+              remaining: mode === "countup" || mode === "longrange" ? 0 : defaultSeconds,
               running: false,
               locked: false,
+              elapsed: 0,
             };
             return {
               ...prev,
@@ -533,7 +638,6 @@ export default function RunLockedView({ runBody, initialInteractionState, onChan
                 ...prev.timers,
                 [timerKey]: {
                   ...existing,
-                  running: false,
                   locked: !existing.locked,
                   alertUntil: existing.locked ? existing.alertUntil : undefined,
                 },
@@ -546,16 +650,22 @@ export default function RunLockedView({ runBody, initialInteractionState, onChan
       timerControlsRef.current[timerKey] = {
         container: node,
         value: valueSpan,
+        elapsed: elapsedSpan,
+        stamps: stampsSpan,
         startPause,
         reset,
         lock,
       };
 
-      node.appendChild(labelSpan);
-      node.appendChild(valueSpan);
-      node.appendChild(startPause);
-      node.appendChild(reset);
-      node.appendChild(lock);
+      topRow.appendChild(labelSpan);
+      topRow.appendChild(valueSpan);
+      node.appendChild(topRow);
+      node.appendChild(elapsedSpan);
+      node.appendChild(stampsSpan);
+      buttonRow.appendChild(startPause);
+      buttonRow.appendChild(reset);
+      buttonRow.appendChild(lock);
+      node.appendChild(buttonRow);
     });
 
   }, [applyInteractionToDom, runBody, initialInteractionState, readOnly]);
@@ -565,21 +675,41 @@ export default function RunLockedView({ runBody, initialInteractionState, onChan
   }, [interaction, applyInteractionToDom]);
 
   useEffect(() => {
-    if (!Object.values(interaction.timers).some((timer) => timer.running && !timer.locked)) return;
+    if (!Object.values(interaction.timers).some((timer) => timer.running)) return;
     const id = window.setInterval(() => {
       setInteraction((prev) => {
         let changed = false;
         const nextTimers: Record<string, TimerState> = { ...prev.timers };
 
         for (const [key, timer] of Object.entries(prev.timers)) {
-          if (!timer.running || timer.locked) continue;
-          const remaining = timer.remaining - 1;
-          const crossedToNegative = timer.remaining >= 0 && remaining < 0;
+          if (!timer.running) continue;
+          const mode = timer.mode ?? "countdown";
+          let remaining = timer.remaining;
+          let elapsed = timer.elapsed ?? 0;
+          let alertUntil = timer.alertUntil;
+
+          if (mode === "countup") {
+            remaining = timer.remaining + 1;
+          } else if (mode === "longrange") {
+            remaining = timer.remaining + 1;
+            elapsed = remaining;
+          } else {
+            remaining = timer.remaining - 1;
+            const reachedZero = timer.remaining > 0 && remaining <= 0;
+            alertUntil = reachedZero ? Date.now() + 15000 : timer.alertUntil;
+            if (remaining < 0) remaining = 0;
+            elapsed = timer.total - remaining;
+          }
+
           nextTimers[key] = {
             ...timer,
+            mode,
             remaining,
-            running: true,
-            alertUntil: crossedToNegative ? Date.now() + 15000 : timer.alertUntil,
+            elapsed,
+            alertUntil,
+            running: mode === "countdown" && remaining <= 0 ? false : timer.running,
+            locked: mode === "countdown" && remaining <= 0 ? true : timer.locked,
+            endedAt: mode === "countdown" && remaining <= 0 && !timer.endedAt ? Date.now() : timer.endedAt,
           };
           changed = true;
         }

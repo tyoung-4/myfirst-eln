@@ -210,6 +210,8 @@ function RunsPageContent() {
   const [manualSaveLoading, setManualSaveLoading] = useState(false);
   const [autoSaveState, setAutoSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [showNotesPopup, setShowNotesPopup] = useState(false);
+  const [showUtilityPopup, setShowUtilityPopup] = useState(false);
 
   const [interactionState, setInteractionState] = useState<InteractionState>(EMPTY_INTERACTION);
   const [notes, setNotes] = useState("");
@@ -405,7 +407,9 @@ function RunsPageContent() {
       } catch {
         detail = await res.text().catch(() => "<no body>");
       }
-      throw new Error(detail || `Save failed (${res.status})`);
+      const err = new Error(detail || `Save failed (${res.status})`) as Error & { status?: number };
+      err.status = res.status;
+      throw err;
     }
 
     return (await res.json()) as ProtocolRun;
@@ -432,6 +436,25 @@ function RunsPageContent() {
         lastAutoSavedSignatureRef.current = signature;
         setAutoSaveState("saved");
       } catch (error) {
+        const message = error instanceof Error ? error.message : "";
+        const status = typeof error === "object" && error && "status" in error ? Number((error as { status?: number }).status) : undefined;
+        const runLocked = status === 409 || /already ended and is locked/i.test(message);
+
+        if (runLocked) {
+          setRuns((prev) =>
+            prev.map((run) =>
+              run.id === selectedRun.id
+                ? {
+                    ...run,
+                    status: "COMPLETED",
+                  }
+                : run
+            )
+          );
+          setAutoSaveState("idle");
+          return;
+        }
+
         console.error("Auto-save failed:", error);
         setAutoSaveState("error");
       }
@@ -533,10 +556,20 @@ function RunsPageContent() {
     <div className="flex min-h-screen flex-col gap-5 bg-zinc-950 p-6 text-zinc-100">
       <AppTopNav />
 
-      <div className="flex items-center justify-between rounded border border-zinc-800 bg-zinc-900 px-4 py-2">
-        <div>
-          <h1 className="text-base font-semibold text-zinc-100">Protocol Runs</h1>
-          <p className="text-xs text-zinc-400">Run active protocols or review locked historical runs.</p>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setViewMode("active")}
+            className={`rounded px-3 py-1.5 text-sm ${viewMode === "active" ? "bg-indigo-600 text-white" : "bg-zinc-800 text-zinc-200 hover:bg-zinc-700"}`}
+          >
+            Active Run
+          </button>
+          <button
+            onClick={() => setViewMode("history")}
+            className={`rounded px-3 py-1.5 text-sm ${viewMode === "history" ? "bg-indigo-600 text-white" : "bg-zinc-800 text-zinc-200 hover:bg-zinc-700"}`}
+          >
+            Run History
+          </button>
         </div>
         <div className="flex items-center gap-2 text-sm text-zinc-400">
           <span>
@@ -559,68 +592,55 @@ function RunsPageContent() {
         </div>
       </div>
 
-      <div className="flex items-center gap-2">
-        <button
-          onClick={() => setViewMode("active")}
-          className={`rounded px-3 py-1.5 text-sm ${viewMode === "active" ? "bg-indigo-600 text-white" : "bg-zinc-800 text-zinc-200 hover:bg-zinc-700"}`}
-        >
-          Active Run
-        </button>
-        <button
-          onClick={() => setViewMode("history")}
-          className={`rounded px-3 py-1.5 text-sm ${viewMode === "history" ? "bg-indigo-600 text-white" : "bg-zinc-800 text-zinc-200 hover:bg-zinc-700"}`}
-        >
-          Run History
-        </button>
-      </div>
-
-      <div className="rounded border border-zinc-800 bg-zinc-900 p-3">
-        <div className="grid gap-2 md:grid-cols-4">
-          <input
-            value={runQuery}
-            onChange={(e) => setRunQuery(e.target.value)}
-            placeholder="Search runs"
-            className="rounded border border-zinc-700 bg-zinc-800 px-2 py-1 text-xs text-zinc-100 placeholder:text-zinc-500"
-          />
-          <select
-            value={runTechniqueFilter}
-            onChange={(e) => setRunTechniqueFilter(e.target.value)}
-            className="rounded border border-zinc-700 bg-zinc-800 px-2 py-1 text-xs text-zinc-100"
-          >
-            <option value="ALL">All techniques</option>
-            {techniqueOptions.map((option) => (
-              <option key={option} value={option}>
-                {option}
-              </option>
-            ))}
-          </select>
-          <select
-            value={runAuthorFilter}
-            onChange={(e) => setRunAuthorFilter(e.target.value)}
-            className="rounded border border-zinc-700 bg-zinc-800 px-2 py-1 text-xs text-zinc-100"
-          >
-            <option value="ALL">All authors</option>
-            {authorOptions.map((author) => (
-              <option key={author} value={author}>
-                {author}
-              </option>
-            ))}
-          </select>
-          <select
-            value={runSortBy}
-            onChange={(e) => setRunSortBy(e.target.value as RunSortBy)}
-            className="rounded border border-zinc-700 bg-zinc-800 px-2 py-1 text-xs text-zinc-100"
-          >
-            <option value="newest">Sort: Newest</option>
-            <option value="oldest">Sort: Oldest</option>
-            <option value="technique">Sort: Technique</option>
-            <option value="author">Sort: Author</option>
-          </select>
+      {viewMode === "history" && (
+        <div className="rounded border border-zinc-800 bg-zinc-900 p-3">
+          <div className="grid gap-2 md:grid-cols-4">
+            <input
+              value={runQuery}
+              onChange={(e) => setRunQuery(e.target.value)}
+              placeholder="Search runs"
+              className="rounded border border-zinc-700 bg-zinc-800 px-2 py-1 text-xs text-zinc-100 placeholder:text-zinc-500"
+            />
+            <select
+              value={runTechniqueFilter}
+              onChange={(e) => setRunTechniqueFilter(e.target.value)}
+              className="rounded border border-zinc-700 bg-zinc-800 px-2 py-1 text-xs text-zinc-100"
+            >
+              <option value="ALL">All techniques</option>
+              {techniqueOptions.map((option) => (
+                <option key={option} value={option}>
+                  {option}
+                </option>
+              ))}
+            </select>
+            <select
+              value={runAuthorFilter}
+              onChange={(e) => setRunAuthorFilter(e.target.value)}
+              className="rounded border border-zinc-700 bg-zinc-800 px-2 py-1 text-xs text-zinc-100"
+            >
+              <option value="ALL">All authors</option>
+              {authorOptions.map((author) => (
+                <option key={author} value={author}>
+                  {author}
+                </option>
+              ))}
+            </select>
+            <select
+              value={runSortBy}
+              onChange={(e) => setRunSortBy(e.target.value as RunSortBy)}
+              className="rounded border border-zinc-700 bg-zinc-800 px-2 py-1 text-xs text-zinc-100"
+            >
+              <option value="newest">Sort: Newest</option>
+              <option value="oldest">Sort: Oldest</option>
+              <option value="technique">Sort: Technique</option>
+              <option value="author">Sort: Author</option>
+            </select>
+          </div>
         </div>
-      </div>
+      )}
 
       {viewMode === "active" ? (
-        <div className="grid gap-5 lg:grid-cols-[280px_minmax(0,1fr)_320px]">
+        <div className="grid gap-5 lg:grid-cols-[280px_minmax(0,1fr)_240px]">
           <aside className="rounded border border-zinc-800 bg-zinc-900 p-3">
             <h2 className="mb-2 text-lg font-semibold text-zinc-100">Active Runs</h2>
             <ul className="space-y-2">
@@ -679,80 +699,101 @@ function RunsPageContent() {
             )}
           </main>
 
-          <aside className="space-y-4">
-            <div className="rounded border border-zinc-800 bg-zinc-900 p-4">
-              <h3 className="mb-2 text-sm font-semibold text-zinc-100">Notes</h3>
-              <textarea
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-                rows={10}
-                placeholder="Run-specific notes"
-                className="w-full rounded border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-500"
-              />
-            </div>
+          <aside className="space-y-3">
+            <button
+              onClick={() => setShowNotesPopup((prev) => !prev)}
+              className={`w-full rounded border px-3 py-2 text-left text-sm font-semibold ${
+                showNotesPopup ? "border-indigo-500 bg-indigo-500/20 text-indigo-100" : "border-zinc-700 bg-zinc-900 text-zinc-200"
+              }`}
+            >
+              {showNotesPopup ? "Hide Notes" : "Open Notes"}
+            </button>
+            {showNotesPopup && (
+              <div className="rounded border border-zinc-800 bg-zinc-900 p-3">
+                <h3 className="mb-2 text-sm font-semibold text-zinc-100">Notes</h3>
+                <textarea
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  rows={10}
+                  placeholder="Run-specific notes"
+                  className="w-full rounded border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-500"
+                />
+              </div>
+            )}
 
-            <div className="rounded border border-zinc-800 bg-zinc-900 p-4">
-              <h3 className="mb-2 text-sm font-semibold text-zinc-100">Utility Timer</h3>
-              <p className="mb-3 text-xs text-zinc-400">Standalone timer for this run (outside protocol steps).</p>
-              <div className="mb-3 grid grid-cols-2 gap-3">
-                <div>
-                  <label className="mb-1 block text-xs text-zinc-400">Minutes</label>
-                  <input
-                    type="number"
-                    min="0"
-                    value={utilityMinutes}
-                    onChange={(e) => applyUtilityDuration(parseInt(e.target.value || "0", 10), utilitySeconds)}
-                    className="w-full rounded border border-zinc-700 bg-zinc-800 px-2 py-1 text-sm text-zinc-100"
-                  />
+            <button
+              onClick={() => setShowUtilityPopup((prev) => !prev)}
+              className={`w-full rounded border px-3 py-2 text-left text-sm font-semibold ${
+                showUtilityPopup ? "border-emerald-500 bg-emerald-500/20 text-emerald-100" : "border-zinc-700 bg-zinc-900 text-zinc-200"
+              }`}
+            >
+              {showUtilityPopup ? "Hide Utility Timer" : "Open Utility Timer"}
+            </button>
+            {showUtilityPopup && (
+              <div className="rounded border border-zinc-800 bg-zinc-900 p-3">
+                <h3 className="mb-2 text-sm font-semibold text-zinc-100">Utility Timer</h3>
+                <p className="mb-3 text-xs text-zinc-400">Standalone timer for this run (outside protocol steps).</p>
+                <div className="mb-3 grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="mb-1 block text-xs text-zinc-400">Minutes</label>
+                    <input
+                      type="number"
+                      min="0"
+                      value={utilityMinutes}
+                      onChange={(e) => applyUtilityDuration(parseInt(e.target.value || "0", 10), utilitySeconds)}
+                      className="w-full rounded border border-zinc-700 bg-zinc-800 px-2 py-1 text-sm text-zinc-100"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-xs text-zinc-400">Seconds</label>
+                    <input
+                      type="number"
+                      min="0"
+                      max="59"
+                      value={utilitySeconds}
+                      onChange={(e) => applyUtilityDuration(utilityMinutes, parseInt(e.target.value || "0", 10))}
+                      className="w-full rounded border border-zinc-700 bg-zinc-800 px-2 py-1 text-sm text-zinc-100"
+                    />
+                  </div>
                 </div>
-                <div>
-                  <label className="mb-1 block text-xs text-zinc-400">Seconds</label>
-                  <input
-                    type="number"
-                    min="0"
-                    max="59"
-                    value={utilitySeconds}
-                    onChange={(e) => applyUtilityDuration(utilityMinutes, parseInt(e.target.value || "0", 10))}
-                    className="w-full rounded border border-zinc-700 bg-zinc-800 px-2 py-1 text-sm text-zinc-100"
-                  />
+                <div className="flex items-center gap-2">
+                  <span className="min-w-[70px] rounded border border-zinc-700 bg-zinc-800 px-2 py-1 text-center font-mono text-sm text-zinc-100">
+                    {formatDuration(utilityTimer.remaining)}
+                  </span>
+                  <button
+                    onClick={() => setUtilityTimer((prev) => (prev.locked ? prev : { ...prev, running: !prev.running }))}
+                    disabled={utilityTimer.locked}
+                    className="rounded border border-zinc-700 bg-zinc-800 px-2 py-1 text-xs text-zinc-200 disabled:opacity-40"
+                  >
+                    {utilityTimer.running ? "Pause" : "Start"}
+                  </button>
+                  <button
+                    onClick={() =>
+                      setUtilityTimer((prev) => (prev.locked ? prev : { ...prev, running: false, remaining: prev.total }))
+                    }
+                    disabled={utilityTimer.locked}
+                    className="rounded border border-zinc-700 bg-zinc-800 px-2 py-1 text-xs text-zinc-200 disabled:opacity-40"
+                  >
+                    Reset
+                  </button>
+                  <button
+                    onClick={() => setUtilityTimer((prev) => ({ ...prev, running: false, locked: !prev.locked }))}
+                    className="rounded border border-zinc-700 bg-zinc-800 px-2 py-1 text-xs text-zinc-200"
+                  >
+                    {utilityTimer.locked ? "Unlock" : "Lock"}
+                  </button>
                 </div>
               </div>
-              <div className="flex items-center gap-2">
-                <span className="min-w-[70px] rounded border border-zinc-700 bg-zinc-800 px-2 py-1 text-center font-mono text-sm text-zinc-100">
-                  {formatDuration(utilityTimer.remaining)}
-                </span>
-                <button
-                  onClick={() => setUtilityTimer((prev) => (prev.locked ? prev : { ...prev, running: !prev.running }))}
-                  disabled={utilityTimer.locked}
-                  className="rounded border border-zinc-700 bg-zinc-800 px-2 py-1 text-xs text-zinc-200 disabled:opacity-40"
-                >
-                  {utilityTimer.running ? "Pause" : "Start"}
-                </button>
-                <button
-                  onClick={() =>
-                    setUtilityTimer((prev) => (prev.locked ? prev : { ...prev, running: false, remaining: prev.total }))
-                  }
-                  disabled={utilityTimer.locked}
-                  className="rounded border border-zinc-700 bg-zinc-800 px-2 py-1 text-xs text-zinc-200 disabled:opacity-40"
-                >
-                  Reset
-                </button>
-                <button
-                  onClick={() => setUtilityTimer((prev) => ({ ...prev, running: false, locked: !prev.locked }))}
-                  className="rounded border border-zinc-700 bg-zinc-800 px-2 py-1 text-xs text-zinc-200"
-                >
-                  {utilityTimer.locked ? "Unlock" : "Lock"}
-                </button>
-              </div>
-              <button
-                onClick={handleManualSave}
-                disabled={manualSaveLoading || !selectedRun}
-                className="mt-4 w-full rounded bg-blue-600 px-3 py-2 text-sm text-white hover:bg-blue-500 disabled:opacity-50"
-              >
-                Save Run Progress
-              </button>
-              <p className="mt-1 text-[11px] text-zinc-500">Manual save persists Notes and Utility Timer.</p>
-            </div>
+            )}
+
+            <button
+              onClick={handleManualSave}
+              disabled={manualSaveLoading || !selectedRun}
+              className="w-full rounded bg-blue-600 px-3 py-2 text-sm text-white hover:bg-blue-500 disabled:opacity-50"
+            >
+              Save Run Progress
+            </button>
+            <p className="text-[11px] text-zinc-500">Manual save persists Notes and Utility Timer.</p>
           </aside>
         </div>
       ) : (

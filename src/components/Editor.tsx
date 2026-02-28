@@ -10,6 +10,7 @@ type Props = {
   onDirtyChange?: (dirty: boolean) => void;
   onCancel?: () => void;
   saving?: boolean;
+  protocolShell?: boolean;
 };
 
 export default function Editor({
@@ -19,11 +20,16 @@ export default function Editor({
   onDirtyChange,
   onCancel,
   saving = false,
+  protocolShell = false,
 }: Props) {
   const [title, setTitle] = useState(initial.title ?? "");
   const [description, setDescription] = useState(initial.description ?? "");
   const [technique, setTechnique] = useState(initial.technique ?? "General");
   const [body, setBody] = useState(initial.body ?? "");
+  const [externalAction, setExternalAction] = useState<{
+    id: number;
+    type: "insert-section" | "insert-step" | "insert-sub-step" | "convert-to-step" | "add-step-case";
+  } | null>(null);
 
   useEffect(() => {
     setTitle(initial.title ?? "");
@@ -46,53 +52,154 @@ export default function Editor({
   }, [isDirty, onDirtyChange]);
 
   return (
-    <div className="w-full max-w-4xl">
-      <div className="mb-4 rounded border border-zinc-800 bg-zinc-900 p-4">
-        <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-zinc-400">Entry Metadata</p>
-        <input
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          placeholder="Entry name"
-          className="mb-3 w-full rounded border border-zinc-700 bg-zinc-800 px-3 py-2 text-xl font-semibold text-zinc-100 placeholder:text-zinc-500"
-        />
-        <textarea
-          value={description}
-          onChange={(e) => setDescription(e.target.value.slice(0, 100))}
-          placeholder="Short description (max 100 characters)"
-          maxLength={100}
-          rows={2}
-          className="w-full resize-none rounded border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-200 placeholder:text-zinc-500"
-        />
-        <div className="mt-3">
-          <label className="mb-1 block text-xs font-medium text-zinc-400">Technique</label>
-          <select
-            value={technique}
-            onChange={(e) => setTechnique(e.target.value)}
-            className="w-full rounded border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-100"
-          >
-            {TECHNIQUE_OPTIONS.map((option) => (
-              <option key={option} value={option}>
-                {option}
-              </option>
-            ))}
-          </select>
+    <div className="w-full">
+      {protocolShell ? (
+        <div className="mb-2 rounded border border-zinc-800 bg-zinc-900 p-2">
+          <div className="grid gap-2 lg:grid-cols-[2fr_2fr_1.2fr_1fr]">
+            <input
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="Entry name"
+              className="w-full rounded border border-zinc-700 bg-zinc-800 px-2 py-1.5 text-sm font-semibold text-zinc-100 placeholder:text-zinc-500"
+            />
+            <input
+              value={description}
+              onChange={(e) => setDescription(e.target.value.slice(0, 100))}
+              placeholder="Short description"
+              maxLength={100}
+              className="w-full rounded border border-zinc-700 bg-zinc-800 px-2 py-1.5 text-sm text-zinc-200 placeholder:text-zinc-500"
+            />
+            <select
+              value={technique}
+              onChange={(e) => setTechnique(e.target.value)}
+              className="w-full rounded border border-zinc-700 bg-zinc-800 px-2 py-1.5 text-sm text-zinc-100"
+            >
+              {TECHNIQUE_OPTIONS.map((option) => (
+                <option key={option} value={option}>
+                  {option}
+                </option>
+              ))}
+            </select>
+            <div className="rounded border border-zinc-700 bg-zinc-800 px-2 py-1.5 text-sm text-zinc-200">
+              {initial.author?.name || currentAuthorName || "Unknown"}
+            </div>
+          </div>
         </div>
-        <div className="mt-3 rounded border bg-zinc-800 px-3 py-2">
-          <p className="text-xs font-medium text-zinc-400">Author</p>
-          <p className="text-sm text-zinc-100">{initial.author?.name || currentAuthorName || "Unknown"}</p>
+      ) : (
+        <div className="mb-4 rounded border border-zinc-800 bg-zinc-900 p-4">
+          <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-zinc-400">Entry Metadata</p>
+          <input
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            placeholder="Entry name"
+            className="mb-3 w-full rounded border border-zinc-700 bg-zinc-800 px-3 py-2 text-xl font-semibold text-zinc-100 placeholder:text-zinc-500"
+          />
+          <textarea
+            value={description}
+            onChange={(e) => setDescription(e.target.value.slice(0, 100))}
+            placeholder="Short description (max 100 characters)"
+            maxLength={100}
+            rows={2}
+            className="w-full resize-none rounded border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-200 placeholder:text-zinc-500"
+          />
+          <div className="mt-3">
+            <label className="mb-1 block text-xs font-medium text-zinc-400">Technique</label>
+            <select
+              value={technique}
+              onChange={(e) => setTechnique(e.target.value)}
+              className="w-full rounded border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-100"
+            >
+              {TECHNIQUE_OPTIONS.map((option) => (
+                <option key={option} value={option}>
+                  {option}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="mt-3 rounded border bg-zinc-800 px-3 py-2">
+            <p className="text-xs font-medium text-zinc-400">Author</p>
+            <p className="text-sm text-zinc-100">{initial.author?.name || currentAuthorName || "Unknown"}</p>
+          </div>
+          <p className="mt-1 text-right text-xs text-zinc-400">{description.length}/100</p>
         </div>
-        <p className="mt-1 text-right text-xs text-zinc-400">{description.length}/100</p>
-      </div>
+      )}
 
-      <div className="mb-4">
-        <label className="mb-2 block text-sm font-medium">Protocol / Entry Body</label>
-        <RichTextEditor
-          key={initial.id ?? "new-entry"}
-          initialContent={initial.body ?? ""}
-          onChange={(content) => setBody(content)}
-          editable={true}
-        />
-      </div>
+      {protocolShell ? (
+        <div className="mb-2 grid gap-3 lg:grid-cols-[220px_minmax(0,1fr)_260px]">
+          <aside className="rounded border border-zinc-800 bg-zinc-900 p-3">
+            <div className="space-y-1 text-sm">
+              <button
+                onClick={() => setExternalAction({ id: Date.now(), type: "insert-section" })}
+                className="w-full rounded border border-zinc-700 bg-zinc-800 px-3 py-2 text-left text-zinc-100 hover:bg-zinc-700"
+              >
+                Insert section
+              </button>
+              <button
+                onClick={() => setExternalAction({ id: Date.now() + 1, type: "insert-step" })}
+                className="w-full rounded border border-zinc-700 bg-zinc-800 px-3 py-2 text-left text-zinc-100 hover:bg-zinc-700"
+              >
+                Insert step
+              </button>
+              <button
+                onClick={() => setExternalAction({ id: Date.now() + 2, type: "insert-sub-step" })}
+                className="w-full rounded border border-zinc-700 bg-zinc-800 px-3 py-2 text-left text-zinc-100 hover:bg-zinc-700"
+              >
+                Insert sub-step
+              </button>
+              <button
+                onClick={() => setExternalAction({ id: Date.now() + 3, type: "convert-to-step" })}
+                className="w-full rounded border border-zinc-700 bg-zinc-800 px-3 py-2 text-left text-zinc-100 hover:bg-zinc-700"
+              >
+                Convert to step
+              </button>
+              <button
+                onClick={() => setExternalAction({ id: Date.now() + 4, type: "add-step-case" })}
+                className="w-full rounded border border-zinc-700 bg-zinc-800 px-3 py-2 text-left text-zinc-100 hover:bg-zinc-700"
+              >
+                Add step-case
+              </button>
+            </div>
+          </aside>
+
+          <div>
+            <div className="mb-1 flex flex-wrap gap-2 border-b border-zinc-700 pb-1 text-sm text-zinc-300">
+              <span className="border-b-2 border-zinc-100 pb-1 font-semibold text-zinc-100">Steps</span>
+              <span>Description</span>
+              <span>Guidelines & Warnings</span>
+              <span>References</span>
+              <span>Materials</span>
+            </div>
+            <RichTextEditor
+              key={initial.id ?? "new-entry"}
+              initialContent={initial.body ?? ""}
+              onChange={(content) => setBody(content)}
+              editable={true}
+              externalAction={externalAction}
+            />
+          </div>
+
+          <aside className="rounded border border-zinc-800 bg-zinc-900 p-3">
+            <p className="mb-2 text-sm font-semibold text-zinc-100">Components</p>
+            <div className="grid grid-cols-2 gap-2 text-xs">
+              {["Amount", "Sample", "Concentration", "Temperature", "Duration", "Document", "Equipment", "Reagent", "Note", "Expected Result"].map((item) => (
+                <button key={item} className="rounded border border-zinc-700 bg-zinc-800 px-2 py-2 text-left text-zinc-200 hover:bg-zinc-700">
+                  {item}
+                </button>
+              ))}
+            </div>
+          </aside>
+        </div>
+      ) : (
+        <div className="mb-4">
+          <label className="mb-2 block text-sm font-medium">Protocol / Entry Body</label>
+          <RichTextEditor
+            key={initial.id ?? "new-entry"}
+            initialContent={initial.body ?? ""}
+            onChange={(content) => setBody(content)}
+            editable={true}
+          />
+        </div>
+      )}
       <div className="flex gap-2">
         <button
           onClick={() =>
